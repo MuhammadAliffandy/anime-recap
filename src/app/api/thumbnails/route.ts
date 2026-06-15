@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import ffmpeg from 'fluent-ffmpeg';
-import ffmpegStatic from 'ffmpeg-static';
 import { join } from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { existsSync, readdirSync, statSync } from 'fs';
+import os from 'os';
 
-ffmpeg.setFfmpegPath(ffmpegStatic as string);
+const ffmpegBinary = os.platform() === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
+ffmpeg.setFfmpegPath(join(process.cwd(), 'node_modules', 'ffmpeg-static', ffmpegBinary));
 
 const OUTPUT_DIR = join(process.cwd(), 'output');
 
@@ -42,8 +43,8 @@ export async function POST(req: NextRequest) {
 
     await new Promise<void>((resolve, reject) => {
       ffmpeg(videoPath)
-        .on('end', resolve)
-        .on('error', reject)
+        .on('end', () => resolve())
+        .on('error', (err) => reject(err))
         .takeScreenshots({
           count: 3,
           timemarks: timestamps,

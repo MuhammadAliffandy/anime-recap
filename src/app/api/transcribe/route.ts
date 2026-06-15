@@ -1,15 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import ffmpeg from 'fluent-ffmpeg';
-import ffmpegStatic from 'ffmpeg-static';
 import OpenAI from 'openai';
 import { join } from 'path';
 import { existsSync, unlinkSync, createReadStream } from 'fs';
 import { v4 as uuidv4 } from 'uuid';
+import os from 'os';
 
-ffmpeg.setFfmpegPath(ffmpegStatic as string);
+const ffmpegBinary = os.platform() === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
+ffmpeg.setFfmpegPath(join(process.cwd(), 'node_modules', 'ffmpeg-static', ffmpegBinary));
 
 const OUTPUT_DIR = join(process.cwd(), 'output');
-const UPLOAD_DIR = join(process.cwd(), 'uploads'); // Temporary audio storage
+const UPLOAD_DIR = join(process.cwd(), 'uploads');
 
 export async function POST(req: NextRequest) {
   try {
@@ -19,7 +20,11 @@ export async function POST(req: NextRequest) {
 
     if (!fileId) return NextResponse.json({ error: 'Missing fileId' }, { status: 400 });
 
-    const videoPath = join(OUTPUT_DIR, fileId);
+    // Check OUTPUT_DIR first (stripped files land here), then UPLOAD_DIR fallback
+    let videoPath = join(OUTPUT_DIR, fileId);
+    if (!existsSync(videoPath)) {
+      videoPath = join(UPLOAD_DIR, fileId);
+    }
     if (!existsSync(videoPath)) {
       return NextResponse.json({ error: 'Video file not found' }, { status: 404 });
     }
@@ -31,7 +36,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: `Missing API Key for ${provider}` }, { status: 401 });
     }
 
-    // 1. Extract Audio
+    // 1. Extract Audio (low-bitrate mono for fast upload to Whisper)
     const audioFilename = `audio-${uuidv4()}.mp3`;
     const audioPath = join(UPLOAD_DIR, audioFilename);
 
@@ -41,6 +46,7 @@ export async function POST(req: NextRequest) {
         .audioBitrate('32k')
         .audioChannels(1)
         .audioFrequency(16000)
+        .noVideo()
         .save(audioPath)
         .on('end', () => resolve())
         .on('error', (err) => reject(err));
@@ -68,10 +74,10 @@ export async function POST(req: NextRequest) {
       end: w.end,
     }));
 
-    return NextResponse.json({ 
-      success: true, 
+    return NextResponse.json({
+      success: true,
       text: response.text,
-      words
+      words,
     });
 
   } catch (error: any) {

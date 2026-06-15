@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import ffmpeg from 'fluent-ffmpeg';
-import ffmpegStatic from 'ffmpeg-static';
 import { join } from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { writeFileSync, existsSync, unlinkSync } from 'fs';
+import os from 'os';
 
-ffmpeg.setFfmpegPath(ffmpegStatic as string);
+const ffmpegBinary = os.platform() === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
+ffmpeg.setFfmpegPath(join(process.cwd(), 'node_modules', 'ffmpeg-static', ffmpegBinary));
 
 const OUTPUT_DIR = join(process.cwd(), 'output');
 
@@ -58,16 +59,21 @@ export async function POST(req: NextRequest) {
       outputFormat 
     } = await req.json();
 
-    if (!videoFileId || !audioFileId) {
-      return NextResponse.json({ error: 'Missing required files' }, { status: 400 });
+    if (!videoFileId) {
+      return NextResponse.json({ error: 'Missing videoFileId' }, { status: 400 });
     }
 
     const videoPath = join(OUTPUT_DIR, videoFileId);
-    const audioPath = join(OUTPUT_DIR, audioFileId);
-
-    if (!existsSync(videoPath) || !existsSync(audioPath)) {
-      return NextResponse.json({ error: 'Source files not found on server' }, { status: 404 });
+    if (!existsSync(videoPath)) {
+      return NextResponse.json({ error: 'Video file not found on server' }, { status: 404 });
     }
+
+    // audioFileId is optional — if null, audio comes from the video stream itself
+    const audioPath = audioFileId ? join(OUTPUT_DIR, audioFileId) : null;
+    if (audioPath && !existsSync(audioPath)) {
+      return NextResponse.json({ error: 'Audio file not found on server' }, { status: 404 });
+    }
+
 
     const outFilename = `export-${uuidv4()}.mp4`;
     const outputPath = join(OUTPUT_DIR, outFilename);
@@ -121,30 +127,32 @@ export async function POST(req: NextRequest) {
     }
 
     await new Promise<void>((resolve, reject) => {
-      let command = ffmpeg()
-        .input(videoPath)
-        .input(audioPath); // Map audio track 1 (TTS)
+      let command = ffmpeg().input(videoPath);
+
+      // Only add separate audio input if we have one
+      if (audioPath) command = command.input(audioPath);
+
+      const audioMap = audioPath ? '1:a' : '0:a';
 
       if (complexFilterStr) {
         command = command.complexFilter(complexFilterStr);
-        command = command.outputOptions(['-map', '[final]', '-map', '1:a']);
+        command = command.outputOptions(['-map', '[final]', '-map', audioMap]);
       } else if (vfParts.length > 0) {
         command = command.videoFilters(vfParts);
-        command = command.outputOptions(['-map', '0:v', '-map', '1:a']);
+        command = command.outputOptions(['-map', '0:v', '-map', audioMap]);
       } else {
-        command = command.outputOptions(['-map', '0:v', '-map', '1:a']);
+        command = command.outputOptions(['-map', '0:v', '-map', audioMap]);
       }
 
-      // Fastest encoding settings for development/demo
       command = command.outputOptions([
-        '-c:v', 'libx264', 
-        '-crf', '26', 
-        '-preset', 'ultrafast', 
-        '-c:a', 'aac', 
-        '-ar', '44100', 
+        '-c:v', 'libx264',
+        '-crf', '26',
+        '-preset', 'ultrafast',
+        '-c:a', 'aac',
+        '-ar', '44100',
         '-ac', '2',
         '-movflags', 'faststart',
-        '-shortest' // Stop encoding when shortest stream ends (usually audio)
+        '-shortest',
       ]);
 
       command

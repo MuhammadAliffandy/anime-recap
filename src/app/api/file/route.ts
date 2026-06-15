@@ -4,23 +4,23 @@ import { join } from 'path';
 
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
-  const name = url.searchParams.get('name');
+  // Support both ?id= (new) and ?name= (legacy editor page)
+  const name = url.searchParams.get('id') || url.searchParams.get('name');
   const dir = url.searchParams.get('dir') || 'output';
 
-  if (!name) return NextResponse.json({ error: 'Missing name' }, { status: 400 });
+  if (!name) return NextResponse.json({ error: 'Missing file id' }, { status: 400 });
 
   const allowedDirs = ['uploads', 'output'];
-  if (!allowedDirs.includes(dir)) return NextResponse.json({ error: 'Invalid directory' }, { status: 400 });
+  if (!allowedDirs.includes(dir))
+    return NextResponse.json({ error: 'Invalid directory' }, { status: 400 });
 
   const filepath = join(process.cwd(), dir, name);
-  if (!existsSync(filepath)) return NextResponse.json({ error: 'File not found' }, { status: 404 });
+  if (!existsSync(filepath))
+    return NextResponse.json({ error: 'File not found' }, { status: 404 });
 
   const stats = statSync(filepath);
-  
-  // A somewhat naive but functional streaming approach for Next.js 15
-  // Using Node.js streams mapped to Web Streams
   const stream = createReadStream(filepath);
-  
+
   const webStream = new ReadableStream({
     start(controller) {
       stream.on('data', (chunk) => controller.enqueue(chunk));
@@ -29,22 +29,26 @@ export async function GET(req: NextRequest) {
     },
     cancel() {
       stream.destroy();
-    }
+    },
   });
 
   const ext = name.split('.').pop()?.toLowerCase();
   const contentTypes: Record<string, string> = {
-    'mp4': 'video/mp4',
-    'mp3': 'audio/mpeg',
-    'wav': 'audio/wav',
-    'webm': 'video/webm'
+    mp4:  'video/mp4',
+    mp3:  'audio/mpeg',
+    wav:  'audio/wav',
+    webm: 'video/webm',
+    mkv:  'video/x-matroska',
   };
+
+  const isDownload = url.searchParams.get('download') === '1';
 
   return new NextResponse(webStream, {
     headers: {
       'Content-Type': contentTypes[ext || ''] || 'application/octet-stream',
       'Content-Length': stats.size.toString(),
-      'Accept-Ranges': 'bytes'
-    }
+      'Accept-Ranges': 'bytes',
+      ...(isDownload ? { 'Content-Disposition': `attachment; filename="${name}"` } : {}),
+    },
   });
 }

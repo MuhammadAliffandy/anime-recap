@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import ffmpeg from 'fluent-ffmpeg';
-import ffmpegStatic from 'ffmpeg-static';
 import { join } from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { existsSync, writeFileSync, unlinkSync } from 'fs';
+import os from 'os';
 
-ffmpeg.setFfmpegPath(ffmpegStatic as string);
+const ffmpegBinary = os.platform() === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
+ffmpeg.setFfmpegPath(join(process.cwd(), 'node_modules', 'ffmpeg-static', ffmpegBinary));
 
 const UPLOAD_DIR = join(process.cwd(), 'uploads');
 const OUTPUT_DIR = join(process.cwd(), 'output');
@@ -88,6 +89,8 @@ export async function POST(req: NextRequest) {
 
   } catch (error: any) {
     console.error('Process Error:', error);
-    return NextResponse.json({ error: 'Processing failed: ' + error.message }, { status: 500 });
+    return NextResponse.json({
+      error: 'Processing failed: ' + (error.message || String(error)),
+    }, { status: 500 });
   }
 }

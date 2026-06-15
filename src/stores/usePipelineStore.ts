@@ -1,37 +1,18 @@
 import { create } from 'zustand';
 
-export interface Word {
-  word: string;
-  start: number;
-  end: number;
-}
-
 interface PipelineStore {
-  transcriptText: string;
-  transcriptWords: Word[];
-  generatedScript: string;
-  
-  isTranscribing: boolean;
-  isGeneratingScript: boolean;
+  // Which episode is currently running a stage (globally)
+  activeEpisodeId: string | null;
+  isRunningAll: boolean;
 
-  setTranscript: (text: string, words: Word[]) => void;
-  setScript: (script: string) => void;
-  
-  setTranscribing: (status: boolean) => void;
-  setGeneratingScript: (status: boolean) => void;
+  setActiveEpisodeId: (id: string | null) => void;
+  setRunningAll: (val: boolean) => void;
 }
 
 export const usePipelineStore = create<PipelineStore>((set) => ({
-  transcriptText: '',
-  transcriptWords: [],
-  generatedScript: '',
-  
-  isTranscribing: false,
-  isGeneratingScript: false,
+  activeEpisodeId: null,
+  isRunningAll: false,
 
-  setTranscript: (text, words) => set({ transcriptText: text, transcriptWords: words }),
-  setScript: (script) => set({ generatedScript: script }),
-  
-  setTranscribing: (status) => set({ isTranscribing: status }),
-  setGeneratingScript: (status) => set({ isGeneratingScript: status }),
+  setActiveEpisodeId: (activeEpisodeId) => set({ activeEpisodeId }),
+  setRunningAll: (isRunningAll) => set({ isRunningAll }),
 }));
