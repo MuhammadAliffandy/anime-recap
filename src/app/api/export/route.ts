@@ -59,75 +59,75 @@ export async function POST(req: NextRequest) {
       outputFormat 
     } = await req.json();
 
+    console.log(`[EXPORT] Received request. words.length: ${words?.length}`);
+
     if (!videoFileId) {
       return NextResponse.json({ error: 'Missing videoFileId' }, { status: 400 });
     }
 
+    const { 
+      mirror, 
+      colorGrade, 
+      contrast, 
+      saturation, 
+      warmth, 
+      zoom, 
+      blurBackground,
+      panX = 50,
+      panY = 50
+    } = transforms || {};
+
     const videoPath = join(OUTPUT_DIR, videoFileId);
-    if (!existsSync(videoPath)) {
-      return NextResponse.json({ error: 'Video file not found on server' }, { status: 404 });
-    }
-
-    // audioFileId is optional — if null, audio comes from the video stream itself
     const audioPath = audioFileId ? join(OUTPUT_DIR, audioFileId) : null;
-    if (audioPath && !existsSync(audioPath)) {
-      return NextResponse.json({ error: 'Audio file not found on server' }, { status: 404 });
-    }
-
-
-    const outFilename = `export-${uuidv4()}.mp4`;
-    const outputPath = join(OUTPUT_DIR, outFilename);
-    const srtPath = join(OUTPUT_DIR, `subs-${uuidv4()}.ass`);
+    const finalFileId = `final-export-${uuidv4()}.${outputFormat || 'mp4'}`;
+    const outputPath = join(OUTPUT_DIR, finalFileId);
 
     // Create Subtitles
+    const srtPath = join(OUTPUT_DIR, `subs-${uuidv4()}.ass`);
     if (words && words.length > 0) {
       writeFileSync(srtPath, wordsToAss(words));
     }
 
-    const {
-      mirror,
-      colorGrade,
-      contrast,
-      saturation,
-      warmth,
-      blurBackground
-    } = transforms || {};
-
-    let vfParts: string[] = [];
-    let complexFilterStr = '';
-
-    // We assume 16:9 1080p source. 
-    // Wait, the video could be anything. We will force to 1080p height first for consistency.
-    vfParts.push('scale=-2:1080');
-
-    if (mirror) vfParts.push('hflip');
-    if (colorGrade) {
-      vfParts.push(`eq=contrast=${contrast}:saturation=${saturation}`, `hue=h=${warmth}`);
-    }
-
-    if (outputFormat === '9:16' && blurBackground) {
-      const outW = 1080, outH = 1920;
-      const bgChain = `scale=${outW}:${outH}:force_original_aspect_ratio=increase,crop=${outW}:${outH},boxblur=20:5`;
-      const fgParts = [...vfParts, `scale=${outW}:-2`];
-      
-      complexFilterStr = `[0:v]${bgChain}[bg];[0:v]${fgParts.join(',')}[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2[vid]`;
-    } else if (outputFormat === '9:16') {
-      vfParts.push('crop=ih*(9/16):ih');
-    }
-
-    // Add subtitles filter
-    if (words && words.length > 0) {
-      // ffmpeg needs the path escaped
-      const escapedPath = srtPath.replace(/\\/g, '/').replace(/:/g, '\\:');
-      if (complexFilterStr) {
-        complexFilterStr += `;[vid]ass='${escapedPath}'[final]`;
-      } else {
-        vfParts.push(`ass='${escapedPath}'`);
-      }
-    }
-
     await new Promise<void>((resolve, reject) => {
       let command = ffmpeg().input(videoPath);
+
+      const vfParts: string[] = [];
+      let complexFilterStr = '';
+
+      // 9:16 blurred background mode
+      if (blurBackground) {
+        const scaleAndCrop = zoom && zoom > 1.0 
+          ? `[scaled_fg]crop=iw/${zoom}:ih/${zoom}:(iw-iw/${zoom})*(${panX}/100):(ih-ih/${zoom})*(${panY}/100)[fg_cropped];[fg_cropped]` 
+          : '[scaled_fg]';
+
+        complexFilterStr = `[0:v]scale=1080:1920:force_original_aspect_ratio=increase,boxblur=20:20[bg];` +
+          `[0:v]scale=1080:1920:force_original_aspect_ratio=decrease${scaleAndCrop}[fg];` +
+          `[bg][fg]overlay=(W-w)/2:(H-h)/2[vid]`;
+      } else {
+        // Zoom/Crop
+        if (zoom && zoom > 1.0) {
+          vfParts.push(`crop=iw/${zoom}:ih/${zoom}:(iw-iw/${zoom})*(${panX}/100):(ih-ih/${zoom})*(${panY}/100)`);
+        }
+
+        // Force to 1080p height first for consistency.
+        vfParts.push('scale=-2:1080');
+
+        if (mirror) vfParts.push('hflip');
+        if (colorGrade) {
+          vfParts.push(`eq=contrast=${contrast}:saturation=${saturation}`, `hue=h=${warmth}`);
+        }
+      }
+
+      // Add subtitles filter
+      if (words && words.length > 0) {
+        // ffmpeg needs the path escaped
+        const escapedPath = srtPath.replace(/\\/g, '/').replace(/:/g, '\\:');
+        if (complexFilterStr) {
+          complexFilterStr += `;[vid]ass='${escapedPath}'[final]`;
+        } else {
+          vfParts.push(`ass='${escapedPath}'`);
+        }
+      }
 
       // Only add separate audio input if we have one
       if (audioPath) command = command.input(audioPath);
@@ -146,9 +146,11 @@ export async function POST(req: NextRequest) {
 
       command = command.outputOptions([
         '-c:v', 'libx264',
-        '-crf', '26',
-        '-preset', 'ultrafast',
+        '-crf', '18',
+        '-preset', 'medium',
+        '-r', '30',
         '-c:a', 'aac',
+        '-b:a', '192k',
         '-ar', '44100',
         '-ac', '2',
         '-movflags', 'faststart',

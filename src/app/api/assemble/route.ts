@@ -44,12 +44,25 @@ function wordsToAss(words: { word: string; start: number; end: number }[], timeO
   }
   if (group.length) groups.push(group);
 
-  return groups
-    .map((g) => {
-      const text = g.map((w) => w.word).join(' ').trim();
-      return `Dialogue: 0,${toAss(g[0].start)},${toAss(g[g.length - 1].end)},Default,,0,0,0,,${text}`;
-    })
-    .join('\n');
+  const header = `[Script Info]
+ScriptType: v4.00+
+PlayResX: 1920
+PlayResY: 1080
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, BackColour, Bold, BorderStyle, Outline, Shadow, Alignment, MarginV
+Style: Default,Arial,60,&H0000FFFF,&H00000000,&H80000000,-1,1,3,2,2,50
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+`;
+
+  const events = groups.map((g) => {
+    const text = g.map((w) => w.word).join(' ').trim();
+    return `Dialogue: 0,${toAss(g[0].start)},${toAss(g[g.length - 1].end)},Default,,0,0,0,,${text}`;
+  }).join('\n');
+
+  return header + events + '\n';
 }
 
 function getAudioDuration(filePath: string): Promise<number> {
@@ -80,7 +93,47 @@ export async function POST(req: NextRequest) {
       if (!existsSync(ap)) return NextResponse.json({ error: `Audio not found: ${ep.audioFileId}` }, { status: 404 });
     }
 
-    // ── Step 1: For each episode, create a clip trimmed to match TTS audio duration ──
+    // ── Step 1: Optionally create prolog clip (using ep 1 video + prolog audio) ──
+    const finalWords: { word: string; start: number; end: number }[] = [];
+    let cumulativeDuration = 0;
+
+    let prologClipFilename: string | null = null;
+    if (prologAudioFileId && existsSync(join(OUTPUT_DIR, prologAudioFileId))) {
+      const prologAudioPath = join(OUTPUT_DIR, prologAudioFileId);
+      const prologDuration = await getAudioDuration(prologAudioPath);
+      prologClipFilename = `clip-prolog-${uuidv4()}.mp4`;
+      const prologClipPath = join(OUTPUT_DIR, prologClipFilename);
+      tempFiles.push(prologClipPath);
+
+      if (prologAudioWords) {
+        prologAudioWords.forEach(w => {
+          finalWords.push({ word: w.word, start: w.start + cumulativeDuration, end: w.end + cumulativeDuration });
+        });
+      }
+
+      // Use Episode 1 video for prolog background instead of black screen
+      const bgVideoPath = join(OUTPUT_DIR, episodes[0].videoFileId);
+      await new Promise<void>((resolve, reject) => {
+        ffmpeg()
+          .input(bgVideoPath).inputOptions(['-stream_loop', '-1'])
+          .input(prologAudioPath)
+          .outputOptions([
+            '-map', '0:v',
+            '-map', '1:a',
+            '-c:v', 'libx264', '-crf', '18', '-preset', 'medium', '-r', '30',
+            '-c:a', 'aac', '-ar', '44100', '-ac', '2',
+            '-t', String(prologDuration),
+            '-movflags', 'faststart',
+          ])
+          .save(prologClipPath)
+          .on('end', () => resolve())
+          .on('error', (err) => reject(err));
+      });
+      
+      cumulativeDuration += prologDuration;
+    }
+
+    // ── Step 2: For each episode, create a clip trimmed to match TTS audio duration ──
     const episodeClips: string[] = [];
 
     for (let i = 0; i < episodes.length; i++) {
@@ -88,25 +141,29 @@ export async function POST(req: NextRequest) {
       const videoPath = join(OUTPUT_DIR, ep.videoFileId);
       const audioPath = join(OUTPUT_DIR, ep.audioFileId);
 
-      // Get TTS audio duration — this is how long our video clip for this episode should be
       const audioDuration = await getAudioDuration(audioPath);
 
-      // Create a loopable video clip (trim + loop if video shorter than audio)
+      if (ep.audioWords) {
+        ep.audioWords.forEach(w => {
+          finalWords.push({ word: w.word, start: w.start + cumulativeDuration, end: w.end + cumulativeDuration });
+        });
+      }
+
       const clipFilename = `clip-ep${i + 1}-${uuidv4()}.mp4`;
       const clipPath = join(OUTPUT_DIR, clipFilename);
       tempFiles.push(clipPath);
 
       await new Promise<void>((resolve, reject) => {
-        // Use -stream_loop -1 to loop video if needed, and -t to trim to audio duration
         ffmpeg()
-          .input(videoPath).inputOptions(['-stream_loop', '-1'])  // loop video
+          .input(videoPath).inputOptions(['-stream_loop', '-1'])
           .input(audioPath)
           .outputOptions([
             '-map', '0:v',
             '-map', '1:a',
             '-c:v', 'libx264',
-            '-crf', '26',
-            '-preset', 'ultrafast',
+            '-crf', '18',
+            '-preset', 'medium',
+            '-r', '30',
             '-c:a', 'aac',
             '-ar', '44100',
             '-ac', '2',
@@ -119,35 +176,7 @@ export async function POST(req: NextRequest) {
       });
 
       episodeClips.push(clipFilename);
-    }
-
-    // ── Step 2: Optionally create prolog clip (black screen + prolog audio) ──
-    let prologClipFilename: string | null = null;
-    if (prologAudioFileId && existsSync(join(OUTPUT_DIR, prologAudioFileId))) {
-      const prologAudioPath = join(OUTPUT_DIR, prologAudioFileId);
-      const prologDuration = await getAudioDuration(prologAudioPath);
-      prologClipFilename = `clip-prolog-${uuidv4()}.mp4`;
-      const prologClipPath = join(OUTPUT_DIR, prologClipFilename);
-      tempFiles.push(prologClipPath);
-
-      // Black screen with audio for prolog
-      await new Promise<void>((resolve, reject) => {
-        ffmpeg()
-          .input('color=c=black:size=1920x1080:rate=24')
-          .inputOptions(['-f', 'lavfi'])
-          .input(prologAudioPath)
-          .outputOptions([
-            '-map', '0:v',
-            '-map', '1:a',
-            '-c:v', 'libx264', '-crf', '26', '-preset', 'ultrafast',
-            '-c:a', 'aac', '-ar', '44100', '-ac', '2',
-            '-t', String(prologDuration),
-            '-movflags', 'faststart',
-          ])
-          .save(prologClipPath)
-          .on('end', () => resolve())
-          .on('error', (err) => reject(err));
-      });
+      cumulativeDuration += audioDuration;
     }
 
     // ── Step 3: Concat all clips with ffmpeg concat demuxer ──
@@ -187,6 +216,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       success: true,
       finalFileId: finalFilename,
+      finalWords,
       episodeCount: episodes.length,
       hasProlog: !!prologClipFilename,
     });

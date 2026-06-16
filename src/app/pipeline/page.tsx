@@ -214,12 +214,12 @@ function EpisodeCard({
         </div>
 
         <div className="flex items-center gap-2">
-          {(episode.pipelineStage === 'idle' || isError) && !isRunningAny && (
+          {(episode.pipelineStage === 'idle' || isError || isDone) && !isRunningAny && (
             <button
               onClick={() => onRun(episode)}
               className="btn btn-primary btn-sm !py-1.5 !px-3 text-xs"
             >
-              {isError ? <><RefreshCw size={13} /> Retry</> : <><Zap size={13} /> Run</>}
+              {isError || isDone ? <><RefreshCw size={13} /> {isDone ? 'Restart' : 'Retry'}</> : <><Zap size={13} /> Run</>}
             </button>
           )}
           <button

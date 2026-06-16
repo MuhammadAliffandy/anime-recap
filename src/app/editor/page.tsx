@@ -11,10 +11,13 @@ import {
 import Link from 'next/link';
 
 export default function EditorPage() {
-  const { finalExportId } = useVideoStore();
+  const {
+    finalExportId,
+    finalWords,
+  } = useVideoStore();
   const settings = useSettingsStore();
   const {
-    mirror, colorGrade, contrast, saturation, warmth, blurBackground,
+    mirror, colorGrade, contrast, saturation, warmth, zoom, panX, panY, blurBackground,
     isExporting, exportedFileId,
     setTransform, setExporting, setExportedFileId,
   } = useEditorStore();
@@ -30,9 +33,9 @@ export default function EditorPage() {
         body: JSON.stringify({
           videoFileId: finalExportId,
           audioFileId: null,   // audio is already baked in by /api/assemble
-          words: [],           // subtitles already baked in
+          words: finalWords || [],           // subtitles already baked in
           outputFormat: settings.outputFormat,
-          transforms: { mirror, colorGrade, contrast, saturation, warmth, blurBackground },
+          transforms: { mirror, colorGrade, contrast, saturation, warmth, zoom, panX, panY, blurBackground },
         }),
       });
       if (!res.ok) { const e = await res.json(); throw new Error(e.error || 'Export failed'); }
@@ -47,20 +50,44 @@ export default function EditorPage() {
 
   if (!finalExportId) {
     return (
-      <div className="flex flex-col items-center justify-center h-[60vh] gap-5 text-center">
-        <div className="p-6 bg-yellow-500/10 rounded-3xl border border-yellow-500/20">
-          <AlertCircle size={48} className="text-yellow-400" />
-        </div>
-        <h2 className="text-3xl font-bold">No Final Video Yet</h2>
-        <p className="text-white/50 max-w-md text-base">
-          Assemble your recap video first, then come here to apply post-processing effects.
-        </p>
-        <Link href="/voice" className="btn btn-primary mt-2">
-          Go to Assembly →
-        </Link>
+      <div className="flex flex-col items-center justify-center h-[60vh] gap-4">
+        <div className="p-6 bg-cyan-500/10 rounded-full animate-pulse"><Loader2 size={48} className="text-cyan-400 animate-spin" /></div>
+        <p className="text-xl font-bold text-white/50 tracking-tight">No assembled video loaded</p>
+        <Link href="/voice" className="btn btn-primary mt-2">Go to Assembly Stage</Link>
       </div>
     );
   }
+
+  const videoRef = React.useRef<HTMLVideoElement>(null);
+  const [currentTime, setCurrentTime] = React.useState(0);
+
+  // Group words into chunks of 5 (matches the export subtitle logic)
+  const subtitleChunks = React.useMemo(() => {
+    if (!finalWords) return [];
+    const chunks = [];
+    let currentChunk = [];
+    for (const w of finalWords) {
+      currentChunk.push(w);
+      if (currentChunk.length >= 5) {
+        chunks.push(currentChunk);
+        currentChunk = [];
+      }
+    }
+    if (currentChunk.length > 0) chunks.push(currentChunk);
+    return chunks;
+  }, [finalWords]);
+
+  // Find the chunk that is currently being spoken
+  const activeChunk = subtitleChunks.find(
+    chunk => currentTime >= chunk[0].start && currentTime <= chunk[chunk.length - 1].end
+  ) || [];
+
+  // Construct CSS filters
+  const filterStyle = colorGrade 
+    ? `contrast(${contrast}) saturate(${saturation}) hue-rotate(${warmth * 10}deg)` 
+    : 'none';
+  const transformStyle = `scale(${zoom}) ${mirror ? 'scaleX(-1)' : ''}`;
+  const transformOriginStyle = `${panX}% ${panY}%`;
 
   return (
     <div className="flex flex-col gap-10 pb-20 mt-4 relative z-10">
@@ -73,40 +100,62 @@ export default function EditorPage() {
             Apply post-processing effects to your assembled recap video.
           </p>
         </div>
-        <button onClick={handleExport} disabled={isExporting} className="btn btn-primary btn-lg shrink-0">
-          {isExporting
-            ? <><Loader2 size={20} className="animate-spin" /> Rendering...</>
-            : <><Clapperboard size={20} /> Export Final</>}
-        </button>
+        <div className="flex items-center gap-4 shrink-0">
+          {exportedFileId && (
+            <a href={`/api/file?name=${exportedFileId}&dir=output`} download className="btn btn-ghost text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/10">
+              <Download size={20} /> Download Result
+            </a>
+          )}
+          <button onClick={handleExport} disabled={isExporting} className="btn btn-primary btn-lg">
+            {isExporting
+              ? <><Loader2 size={20} className="animate-spin" /> Rendering...</>
+              : <><Clapperboard size={20} /> Export Final</>}
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8" style={{ height: 'calc(100vh - 250px)', minHeight: '580px' }}>
         {/* Canvas */}
-        <div className="lg:col-span-2 glass-card flex flex-col gap-5 overflow-hidden">
-          <div className="flex items-center gap-3 border-b border-white/10 pb-5 shrink-0">
+        <div className="lg:col-span-2 glass-card flex flex-col gap-5 overflow-hidden relative">
+          <div className="flex items-center gap-3 border-b border-white/10 pb-5 shrink-0 z-20">
             <div className="p-3 bg-pink-500/20 rounded-xl"><MonitorPlay size={22} className="text-pink-400" /></div>
-            <h2 className="text-xl font-bold">Preview</h2>
+            <h2 className="text-xl font-bold">Live Preview</h2>
           </div>
-          <div className="flex-1 bg-black/60 rounded-2xl border border-white/8 overflow-hidden flex items-center justify-center">
-            {exportedFileId
-              ? <video src={`/api/file?name=${exportedFileId}&dir=output`} controls autoPlay className="w-full h-full object-contain" />
-              : (
-                <div className="text-center opacity-35 flex flex-col items-center gap-4 p-8">
-                  <Film size={56} />
-                  <p className="text-base font-medium leading-relaxed">
-                    Assembled recap loaded.<br />Adjust effects & click Export.
-                  </p>
-                </div>
-              )
-            }
-          </div>
-          {exportedFileId && (
-            <div className="flex justify-center shrink-0">
-              <a href={`/api/file?name=${exportedFileId}&dir=output`} download className="btn btn-ghost">
-                <Download size={18} /> Download
-              </a>
+          
+          <div className="flex-1 bg-black/80 rounded-2xl border border-white/8 overflow-hidden relative flex items-center justify-center">
+            {/* The Video Layer (forced to 16:9 aspect ratio) */}
+            <div className="w-full aspect-video relative overflow-hidden flex items-center justify-center bg-black">
+              <video 
+                ref={videoRef}
+                src={`/api/file?name=${finalExportId}&dir=output`} 
+                controls 
+                className="w-full h-full object-cover transition-transform duration-200"
+                style={{ 
+                  transform: transformStyle,
+                  transformOrigin: transformOriginStyle,
+                  filter: filterStyle,
+                }}
+                onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
+              />
             </div>
-          )}
+            
+            {/* Subtitle Overlay Layer */}
+            {activeChunk.length > 0 && (
+              <div 
+                className="absolute bottom-10 left-0 right-0 text-center pointer-events-none z-10 px-8"
+              >
+                <span 
+                  className="inline-block text-[42px] font-bold text-yellow-400"
+                  style={{
+                    fontFamily: 'Arial, sans-serif',
+                    textShadow: '2px 2px 0 #000, -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000, 0px 3px 6px rgba(0,0,0,0.8)',
+                  }}
+                >
+                  {activeChunk.map(w => w.word).join(' ')}
+                </span>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Tools */}
@@ -142,6 +191,52 @@ export default function EditorPage() {
                 </div>
               </label>
             )}
+
+            {/* Zoom Video */}
+            <div className={`p-4 rounded-2xl border transition-all ${zoom > 1.0 ? 'border-pink-500/40 bg-pink-500/5' : 'border-white/8 bg-black/40'}`}>
+              <div className="flex flex-col gap-3">
+                <div className="flex justify-between text-sm font-bold items-center mt-3">
+                  <div className="flex items-center gap-3">
+                    <MonitorPlay size={18} className="text-pink-400" />
+                    <span className="text-white">Zoom</span>
+                  </div>
+                  <span className="text-pink-400">{zoom.toFixed(2)}x</span>
+                </div>
+                <input
+                  type="range" min="1.0" max="1.5" step="0.05" value={zoom}
+                  onChange={(e) => setTransform('zoom', parseFloat(e.target.value))}
+                  className="w-full h-1.5 bg-white/10 rounded-full appearance-none cursor-pointer accent-pink-400"
+                />
+                
+                {zoom > 1.0 && (
+                  <div className="flex flex-col gap-4 mt-3 pt-4 border-t border-white/10">
+                    <div className="flex flex-col gap-2">
+                      <div className="flex justify-between text-xs font-bold">
+                        <span className="text-white/60">Horizontal Pan</span>
+                        <span className="text-pink-400">{panX}%</span>
+                      </div>
+                      <input
+                        type="range" min="0" max="100" step="1" value={panX}
+                        onChange={(e) => setTransform('panX', parseInt(e.target.value))}
+                        className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-pink-400"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      <div className="flex justify-between text-xs font-bold">
+                        <span className="text-white/60">Vertical Pan</span>
+                        <span className="text-pink-400">{panY}%</span>
+                      </div>
+                      <input
+                        type="range" min="0" max="100" step="1" value={panY}
+                        onChange={(e) => setTransform('panY', parseInt(e.target.value))}
+                        className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-pink-400"
+                      />
+                    </div>
+                  </div>
+                )}
+                <p className="text-xs text-white/40 mt-1">Zoom in, then adjust pan to crop</p>
+              </div>
+            </div>
 
             {/* Color Grading */}
             <div className={`p-4 rounded-2xl border transition-all ${colorGrade ? 'border-purple-500/40 bg-purple-500/5' : 'border-white/8 bg-black/40'}`}>

@@ -49,6 +49,7 @@ interface VideoStore {
 
   // Final assembled video
   finalExportId?: string;
+  finalWords?: Word[];
   isAssembling: boolean;
 
   // Episode actions
@@ -69,6 +70,7 @@ interface VideoStore {
 
   // Final assembly
   setFinalExportId: (id: string) => void;
+  setFinalWords: (words: Word[]) => void;
   setAssembling: (val: boolean) => void;
 
   clearAll: () => void;
@@ -196,6 +198,7 @@ export const useVideoStore = create<VideoStore>((set) => ({
     set({ prologAudioFileId, prologAudioWords }),
 
   setFinalExportId: (finalExportId) => set({ finalExportId }),
+  setFinalWords: (finalWords) => set({ finalWords }),
   setAssembling: (isAssembling) => set({ isAssembling }),
 
   clearAll: () =>
@@ -206,6 +209,7 @@ export const useVideoStore = create<VideoStore>((set) => ({
       prologAudioFileId: undefined,
       prologAudioWords: undefined,
       finalExportId: undefined,
+      finalWords: undefined,
       isAssembling: false,
     }),
 }));

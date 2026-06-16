@@ -6,6 +6,9 @@ interface EditorStore {
   contrast: number;
   saturation: number;
   warmth: number;
+  zoom: number;
+  panX: number;
+  panY: number;
   blurBackground: boolean;
   fadeAudioVideo: boolean;
 
@@ -25,6 +28,9 @@ export const useEditorStore = create<EditorStore>((set) => ({
   contrast: 1.05,
   saturation: 1.1,
   warmth: 3,
+  zoom: 1.0,
+  panX: 50,
+  panY: 50,
   blurBackground: false,
   fadeAudioVideo: false,
 

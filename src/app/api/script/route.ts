@@ -6,7 +6,7 @@ const EPISODE_SCRIPT_PROMPT = (episodeNum: number, totalEpisodes: number) =>
 You are writing the voiceover narration for Episode ${episodeNum} of ${totalEpisodes} total episodes.
 
 Rules:
-- Write ONLY the spoken voiceover narration — no stage directions, timestamps, or visual cues
+- CRITICAL: Write ONLY the exact spoken words. ABSOLUTELY NO stage directions, no parentheses, no brackets, no sound effects, no intro/outro labels (e.g. do NOT write "(music starts)", "[sighs]", or "Narrator:"). The text will be sent directly to a TTS engine.
 - Be dramatic, engaging, and fast-paced — like a professional YouTube storyteller
 - Preserve key story beats, character moments, and plot twists
 - End each episode segment with a cliffhanger hook leading to the next episode (unless it's the final episode)
@@ -18,6 +18,7 @@ const PROLOG_PROMPT = (animeTitle: string, episodeSummaries: string) =>
 Write a compelling PROLOG voiceover narration that will open a full-season recap video for the anime "${animeTitle}".
 
 The prolog should:
+- CRITICAL: Write ONLY the exact spoken words. ABSOLUTELY NO stage directions, no parentheses, no brackets, no sound effects, no intro/outro labels (e.g. do NOT write "(music starts)", "[sighs]", or "Narrator:"). The text will be sent directly to a TTS engine.
 - Hook the viewer immediately with the anime's core premise/appeal
 - Briefly introduce the main character(s) and the world/setting
 - Build hype and anticipation for what they're about to watch

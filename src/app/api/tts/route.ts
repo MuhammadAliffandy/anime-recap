@@ -47,8 +47,9 @@ export async function POST(req: NextRequest) {
 
     } else if (provider === 'google') {
       // Chunking for Google TTS (max 200 chars per chunk usually, but library handles it)
-      const base64Audio = await googleTTS.getAudioBase64(script, { lang: 'en', slow: false });
-      writeFileSync(filepath, Buffer.from(base64Audio, 'base64'));
+      const results = await googleTTS.getAllAudioBase64(script, { lang: 'en', slow: false });
+      const buffers = results.map((r: any) => Buffer.from(r.base64, 'base64'));
+      writeFileSync(filepath, Buffer.concat(buffers));
     } else {
       return NextResponse.json({ error: 'Invalid TTS provider' }, { status: 400 });
     }

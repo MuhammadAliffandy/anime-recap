@@ -58,8 +58,12 @@ export async function POST(req: NextRequest) {
         .setStartTime(startTime)
         .setDuration(endTime - startTime)
         .outputOptions([
-          '-c', 'copy',      // stream copy - fast, no re-encode
-          '-avoid_negative_ts', 'make_zero',
+          '-c:v', 'libx264',
+          '-preset', 'fast',
+          '-crf', '26',
+          '-c:a', 'aac',
+          '-b:a', '128k',
+          '-async', '1'
         ])
         .save(outputPath)
         .on('end', () => resolve())

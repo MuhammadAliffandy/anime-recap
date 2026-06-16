@@ -7,8 +7,10 @@ import {
   Volume2, Film, Sparkles, Layers,
 } from 'lucide-react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 
 export default function VoicePage() {
+  const router = useRouter();
   const {
     episodes,
     animeTitle,
@@ -17,6 +19,7 @@ export default function VoicePage() {
     finalExportId,
     isAssembling,
     setFinalExportId,
+    setFinalWords,
     setAssembling,
   } = useVideoStore();
 
@@ -51,6 +54,10 @@ export default function VoicePage() {
       }
       const data = await res.json();
       setFinalExportId(data.finalFileId);
+      if (data.finalWords) {
+        setFinalWords(data.finalWords);
+      }
+      router.push('/editor');
     } catch (err: any) {
       setError(err.message);
     } finally {
