@@ -74,6 +74,21 @@ function getAudioDuration(filePath: string): Promise<number> {
   });
 }
 
+function getVideoDuration(filePath: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    ffmpeg.ffprobe(filePath, (err, metadata) => {
+      if (err) return reject(err);
+      resolve(metadata.format.duration || 0);
+    });
+  });
+}
+
+function buildHighlightFilter(videoDuration: number, audioDuration: number, clipDuration = 5): string | null {
+  if (videoDuration <= audioDuration) return null;
+  const interval = (videoDuration * clipDuration) / audioDuration;
+  return `[0:v]select='lt(mod(t\\, ${interval.toFixed(2)})\\, ${clipDuration})',setpts=N/FRAME_RATE/TB[v]`;
+}
+
 export async function POST(req: NextRequest) {
   const tempFiles: string[] = [];
 
@@ -113,18 +128,29 @@ export async function POST(req: NextRequest) {
 
       // Use Episode 1 video for prolog background instead of black screen
       const bgVideoPath = join(OUTPUT_DIR, episodes[0].videoFileId);
+      const bgVideoDuration = await getVideoDuration(bgVideoPath);
+      const highlightFilter = buildHighlightFilter(bgVideoDuration, prologDuration, 4); // 4 sec clips for prolog
+
       await new Promise<void>((resolve, reject) => {
-        ffmpeg()
-          .input(bgVideoPath).inputOptions(['-stream_loop', '-1'])
-          .input(prologAudioPath)
-          .outputOptions([
-            '-map', '0:v',
-            '-map', '1:a',
-            '-c:v', 'libx264', '-crf', '18', '-preset', 'medium', '-r', '30',
-            '-c:a', 'aac', '-ar', '44100', '-ac', '2',
-            '-t', String(prologDuration),
-            '-movflags', 'faststart',
-          ])
+        const cmd = ffmpeg().input(bgVideoPath);
+        if (!highlightFilter) {
+          cmd.inputOptions(['-stream_loop', '-1']);
+        }
+        cmd.input(prologAudioPath);
+
+        const outputOpts: string[] = [];
+        if (highlightFilter) {
+          outputOpts.push('-filter_complex', highlightFilter);
+          outputOpts.push('-map', '[v]');
+        } else {
+          outputOpts.push('-map', '0:v');
+        }
+        outputOpts.push('-map', '1:a');
+        outputOpts.push('-c:v', 'libx264', '-crf', '18', '-preset', 'medium', '-r', '30');
+        outputOpts.push('-c:a', 'aac', '-ar', '44100', '-ac', '2');
+        outputOpts.push('-t', String(prologDuration), '-movflags', 'faststart');
+
+        cmd.outputOptions(outputOpts)
           .save(prologClipPath)
           .on('end', () => resolve())
           .on('error', (err) => reject(err));
@@ -143,6 +169,9 @@ export async function POST(req: NextRequest) {
 
       const audioDuration = await getAudioDuration(audioPath);
 
+      const videoDuration = await getVideoDuration(videoPath);
+      const highlightFilter = buildHighlightFilter(videoDuration, audioDuration, 5); // 5 sec clips
+
       if (ep.audioWords) {
         ep.audioWords.forEach(w => {
           finalWords.push({ word: w.word, start: w.start + cumulativeDuration, end: w.end + cumulativeDuration });
@@ -154,22 +183,25 @@ export async function POST(req: NextRequest) {
       tempFiles.push(clipPath);
 
       await new Promise<void>((resolve, reject) => {
-        ffmpeg()
-          .input(videoPath).inputOptions(['-stream_loop', '-1'])
-          .input(audioPath)
-          .outputOptions([
-            '-map', '0:v',
-            '-map', '1:a',
-            '-c:v', 'libx264',
-            '-crf', '18',
-            '-preset', 'medium',
-            '-r', '30',
-            '-c:a', 'aac',
-            '-ar', '44100',
-            '-ac', '2',
-            '-t', String(audioDuration),
-            '-movflags', 'faststart',
-          ])
+        const cmd = ffmpeg().input(videoPath);
+        if (!highlightFilter) {
+          cmd.inputOptions(['-stream_loop', '-1']);
+        }
+        cmd.input(audioPath);
+
+        const outputOpts: string[] = [];
+        if (highlightFilter) {
+          outputOpts.push('-filter_complex', highlightFilter);
+          outputOpts.push('-map', '[v]');
+        } else {
+          outputOpts.push('-map', '0:v');
+        }
+        outputOpts.push('-map', '1:a');
+        outputOpts.push('-c:v', 'libx264', '-crf', '18', '-preset', 'medium', '-r', '30');
+        outputOpts.push('-c:a', 'aac', '-ar', '44100', '-ac', '2');
+        outputOpts.push('-t', String(audioDuration), '-movflags', 'faststart');
+
+        cmd.outputOptions(outputOpts)
           .save(clipPath)
           .on('end', () => resolve())
           .on('error', (err) => reject(err));

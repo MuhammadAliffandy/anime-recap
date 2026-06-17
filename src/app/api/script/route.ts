@@ -1,17 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 
-const EPISODE_SCRIPT_PROMPT = (episodeNum: number, totalEpisodes: number) =>
+const EPISODE_SCRIPT_PROMPT = (episodeNum: number, totalEpisodes: number, animeTitle?: string, previousScript?: string) =>
   `You are an expert anime recap storyteller for YouTube creating a long-form recap video.
-You are writing the voiceover narration for Episode ${episodeNum} of ${totalEpisodes} total episodes.
+You are writing the voiceover narration for Episode ${episodeNum} of ${totalEpisodes} total episodes${animeTitle ? ` for the anime "${animeTitle}"` : ''}.
+${previousScript ? `\nFor context, here is the recap script from the PREVIOUS episode to ensure continuity:\n"""\n${previousScript}\n"""\n` : ''}
+Your task is to read the "Original Episode Transcript" provided by the user, extract EVERY SINGLE key plot point, character interaction, and event, and turn them into a highly detailed, comprehensive, and engaging 5-minute spoken recap.
 
 Rules:
-- CRITICAL: Write ONLY the exact spoken words. ABSOLUTELY NO stage directions, no parentheses, no brackets, no sound effects, no intro/outro labels (e.g. do NOT write "(music starts)", "[sighs]", or "Narrator:"). The text will be sent directly to a TTS engine.
-- Be dramatic, engaging, and fast-paced — like a professional YouTube storyteller
-- Preserve key story beats, character moments, and plot twists
-- End each episode segment with a cliffhanger hook leading to the next episode (unless it's the final episode)
-- Keep it between 150-250 words
-- Start with "In Episode ${episodeNum}..." or a dramatic hook tied to that episode`;
+- CRITICAL: You MUST base your recap strictly on the actual events and dialogue found in the provided transcript. Do not just write a generic intro or outro. Tell the actual story of what happens in this episode!
+- CRITICAL: NO CONVERSATIONAL FILLER. Do NOT start your response with "Here is the recap" or "Sure, here is the script". Output ONLY the raw spoken words of the story. Do NOT write any titles, stage directions, parentheses, or brackets. The text will be sent directly to a TTS engine.
+- Write in a friendly, casual, and conversational tone (like chatting with a friend about an awesome anime). Avoid overly formal, stiff, or overly dramatic words. Keep it relaxed and engaging.
+- Ensure the story connects logically and smoothly with the previous episode's events.
+- Preserve key story beats, character moments, and plot twists.
+- End each episode segment with a cliffhanger hook leading to the next episode (unless it's the final episode).
+- CRITICAL: Length Requirement! You MUST write a MINIMUM of 800 words. Do NOT skip any scenes from the transcript. Describe the characters' emotions, the dialogue, the fights, and the atmosphere in painstaking detail. If your recap is too short, you must expand on the psychological aspects and visual descriptions of the scenes until you reach at least 800 words. This should be a 5-minute deep-dive.
+${episodeNum === 1 
+  ? `- Start with a friendly, welcoming hook to introduce the recap for Episode 1.` 
+  : `- CRITICAL: Do NOT use any introductory phrases like "Welcome back", "Hello again", or "In Episode ${episodeNum}". Start immediately where the previous episode left off to make it a seamless, continuous story.`}`;
 
 const PROLOG_PROMPT = (animeTitle: string, episodeSummaries: string) =>
   `You are an expert anime recap storyteller for YouTube.
@@ -30,7 +36,7 @@ ${episodeSummaries}`;
 
 export async function POST(req: NextRequest) {
   try {
-    const { transcript, provider, mode, episodeNum, totalEpisodes, animeTitle, allEpisodeScripts } = await req.json();
+    const { transcript, provider, mode, episodeNum, totalEpisodes, animeTitle, allEpisodeScripts, previousScript } = await req.json();
     const openaiKey = req.headers.get('x-openai-key');
     const claudeKey = req.headers.get('x-claude-key');
     const ollamaModel = req.headers.get('x-ollama-model') || 'llama3.1:8b';
@@ -50,7 +56,7 @@ export async function POST(req: NextRequest) {
     } else {
       // episode mode
       if (!transcript) return NextResponse.json({ error: 'Missing transcript' }, { status: 400 });
-      systemPrompt = EPISODE_SCRIPT_PROMPT(episodeNum || 1, totalEpisodes || 1);
+      systemPrompt = EPISODE_SCRIPT_PROMPT(episodeNum || 1, totalEpisodes || 1, animeTitle, previousScript);
       userContent = `Original Episode Transcript:\n${transcript}`;
     }
 

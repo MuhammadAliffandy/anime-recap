@@ -1,13 +1,53 @@
 'use client';
 
 import React, { useState } from 'react';
-import { useVideoStore } from '@/stores/useVideoStore';
+import { useVideoStore, Episode } from '@/stores/useVideoStore';
+import { useSettingsStore } from '@/stores/useSettingsStore';
 import {
   Loader2, CheckCircle2, AlertCircle, Download, PlayCircle,
   Volume2, Film, Sparkles, Layers,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+
+async function runTTSPhase(
+  episode: Episode,
+  settings: ReturnType<typeof useSettingsStore.getState>,
+  updateEpisode: (id: string, updates: Partial<Episode>) => void,
+  setRegeneratingId: (id: string | null) => void
+) {
+  const update = (updates: Partial<Episode>) => updateEpisode(episode.id, updates);
+  try {
+    setRegeneratingId(episode.id);
+    update({ pipelineStage: 'tts', pipelineError: undefined });
+    const ttsRes = await fetch('/api/tts', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-elevenlabs-key': settings.elevenLabsKey,
+        'x-groq-key': settings.groqKey,
+        'x-openai-key': settings.openaiKey,
+      },
+      body: JSON.stringify({
+        script: episode.script,
+        provider: settings.ttsProvider,
+        voiceId: settings.elevenLabsVoiceId,
+        sttProvider: settings.sttProvider,
+      }),
+    });
+    if (!ttsRes.ok) {
+      const e = await ttsRes.json();
+      throw new Error(e.error || 'TTS failed');
+    }
+    const ttsData = await ttsRes.json();
+    update({ audioFileId: ttsData.audioFile, audioWords: ttsData.words, pipelineStage: 'done' });
+  } catch (err: any) {
+    update({ pipelineStage: 'error', pipelineError: err.message });
+    throw err;
+  } finally {
+    setRegeneratingId(null);
+  }
+}
 
 export default function VoicePage() {
   const router = useRouter();
@@ -21,9 +61,12 @@ export default function VoicePage() {
     setFinalExportId,
     setFinalWords,
     setAssembling,
+    updateEpisode,
   } = useVideoStore();
+  const settings = useSettingsStore();
 
   const [error, setError] = useState('');
+  const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
 
   const doneEpisodes = episodes.filter(
     (e) => e.pipelineStage === 'done' && e.strippedFileId && e.audioFileId
@@ -147,19 +190,41 @@ export default function VoicePage() {
                     <span className="text-xs font-black text-white/80">{ep.episodeNumber}</span>
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-bold truncate text-white/90">{ep.originalName}</p>
-                    <p className="text-xs text-white/40 mt-0.5 line-clamp-1 italic">
-                      {ep.script?.substring(0, 80)}...
-                    </p>
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-bold truncate text-white/90">{ep.originalName}</p>
+                      <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />
+                    </div>
                   </div>
-                  <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />
+                </div>
+
+                <div className="bg-black/40 border border-white/8 rounded-xl p-3 flex flex-col gap-2 mt-1">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[10px] font-bold text-purple-400 uppercase tracking-widest">Episode Script</p>
+                    <button
+                      onClick={() => runTTSPhase(ep, settings, updateEpisode, setRegeneratingId)}
+                      disabled={regeneratingId !== null || isAssembling}
+                      className="btn btn-sm !py-1 !px-2.5 text-[10px] bg-purple-500/20 text-purple-400 hover:bg-purple-500/30 border border-purple-500/30"
+                    >
+                      {regeneratingId === ep.id ? (
+                        <><Loader2 size={12} className="mr-1 animate-spin" /> Regenerating...</>
+                      ) : (
+                        <><Volume2 size={12} className="mr-1" /> Regenerate Voice</>
+                      )}
+                    </button>
+                  </div>
+                  <textarea
+                    value={ep.script || ''}
+                    onChange={(e) => updateEpisode(ep.id, { script: e.target.value })}
+                    className="w-full bg-transparent text-xs text-white/70 leading-relaxed custom-scrollbar outline-none resize-none"
+                    rows={4}
+                  />
                 </div>
 
                 {ep.audioFileId && (
                   <audio
                     controls
                     src={`/api/file?id=${ep.audioFileId}`}
-                    className="w-full h-9 rounded-xl"
+                    className="w-full h-9 rounded-xl mt-1"
                   />
                 )}
               </div>

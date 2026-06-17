@@ -12,6 +12,41 @@ import Link from 'next/link';
 
 // ── Pipeline runner for a single episode ──────────────────────────────────────
 
+async function runTTSPhase(
+  episode: Episode,
+  settings: ReturnType<typeof useSettingsStore.getState>,
+  updateEpisode: (id: string, updates: Partial<Episode>) => void
+) {
+  const update = (updates: Partial<Episode>) => updateEpisode(episode.id, updates);
+  try {
+    update({ pipelineStage: 'tts', pipelineError: undefined });
+    const ttsRes = await fetch('/api/tts', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-elevenlabs-key': settings.elevenLabsKey,
+        'x-groq-key': settings.groqKey,
+        'x-openai-key': settings.openaiKey,
+      },
+      body: JSON.stringify({
+        script: episode.script,
+        provider: settings.ttsProvider,
+        voiceId: settings.elevenLabsVoiceId,
+        sttProvider: settings.sttProvider,
+      }),
+    });
+    if (!ttsRes.ok) {
+      const e = await ttsRes.json();
+      throw new Error(e.error || 'TTS failed');
+    }
+    const ttsData = await ttsRes.json();
+    update({ audioFileId: ttsData.audioFile, audioWords: ttsData.words, pipelineStage: 'done' });
+  } catch (err: any) {
+    update({ pipelineStage: 'error', pipelineError: err.message });
+    throw err;
+  }
+}
+
 async function runEpisodePipeline(
   episode: Episode,
   settings: ReturnType<typeof useSettingsStore.getState>,
@@ -61,7 +96,18 @@ async function runEpisodePipeline(
 
     // Stage 3: Generate Script
     update({ pipelineStage: 'scripting' });
-    const allEpisodes = useVideoStore.getState().episodes;
+    const state = useVideoStore.getState();
+    const allEpisodes = state.episodes;
+    
+    // Find previous episode script if available to provide context
+    let previousScript: string | undefined;
+    if (episode.episodeNumber > 1) {
+      const prevEp = allEpisodes.find(e => e.episodeNumber === episode.episodeNumber - 1);
+      if (prevEp && prevEp.script) {
+        previousScript = prevEp.script;
+      }
+    }
+
     const scriptRes = await fetch('/api/script', {
       method: 'POST',
       headers: {
@@ -77,6 +123,8 @@ async function runEpisodePipeline(
         provider: settings.llmProvider,
         episodeNum: episode.episodeNumber,
         totalEpisodes: allEpisodes.length,
+        animeTitle: state.animeTitle,
+        previousScript,
       }),
     });
     if (!scriptRes.ok) {
@@ -87,31 +135,7 @@ async function runEpisodePipeline(
     update({ script: scriptData.script });
 
     // Stage 4: TTS
-    update({ pipelineStage: 'tts' });
-    const ttsRes = await fetch('/api/tts', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-elevenlabs-key': settings.elevenLabsKey,
-        'x-groq-key': settings.groqKey,
-        'x-openai-key': settings.openaiKey,
-      },
-      body: JSON.stringify({
-        script: scriptData.script,
-        provider: settings.ttsProvider,
-        voiceId: settings.elevenLabsVoiceId,
-        sttProvider: settings.sttProvider,
-      }),
-    });
-    if (!ttsRes.ok) {
-      const e = await ttsRes.json();
-      throw new Error(e.error || 'TTS failed');
-    }
-    const ttsData = await ttsRes.json();
-    update({ audioFileId: ttsData.audioFile, audioWords: ttsData.words });
-
-    // Done!
-    update({ pipelineStage: 'done' });
+    await runTTSPhase({ ...episode, script: scriptData.script }, settings, updateEpisode);
 
   } catch (err: any) {
     update({ pipelineStage: 'error', pipelineError: err.message });
@@ -174,10 +198,14 @@ function StageRow({ stage, current }: { stage: typeof STAGES[0]; current: Pipeli
 function EpisodeCard({
   episode,
   onRun,
+  onRunTTS,
+  updateEpisode,
   isRunningAny,
 }: {
   episode: Episode;
   onRun: (ep: Episode) => void;
+  onRunTTS: (ep: Episode) => void;
+  updateEpisode: (id: string, updates: Partial<Episode>) => void;
   isRunningAny: boolean;
 }) {
   const [open, setOpen] = useState(false);
@@ -252,9 +280,23 @@ function EpisodeCard({
           ))}
 
           {episode.script && (
-            <div className="mt-3 bg-black/40 border border-white/8 rounded-xl p-4">
-              <p className="text-xs font-bold text-purple-400 uppercase tracking-widest mb-2">Generated Script</p>
-              <p className="text-xs text-white/70 leading-relaxed whitespace-pre-wrap">{episode.script}</p>
+            <div className="mt-3 bg-black/40 border border-white/8 rounded-xl p-4 flex flex-col gap-3">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-bold text-purple-400 uppercase tracking-widest">Generated Script</p>
+                <button
+                  onClick={() => onRunTTS(episode)}
+                  disabled={isRunning}
+                  className="btn btn-sm !py-1 !px-2.5 text-[10px] bg-purple-500/20 text-purple-400 hover:bg-purple-500/30 border border-purple-500/30"
+                >
+                  <Volume2 size={12} className="mr-1" /> Regenerate Voice
+                </button>
+              </div>
+              <textarea
+                value={episode.script}
+                onChange={(e) => updateEpisode(episode.id, { script: e.target.value })}
+                className="w-full bg-transparent text-xs text-white/70 leading-relaxed custom-scrollbar outline-none resize-none"
+                rows={8}
+              />
             </div>
           )}
 
@@ -372,6 +414,8 @@ export default function PipelinePage() {
             key={ep.id}
             episode={ep}
             onRun={runSingle}
+            onRunTTS={async (epToRun) => await runTTSPhase(epToRun, settings, updateEpisode)}
+            updateEpisode={updateEpisode}
             isRunningAny={isAnyRunning || isRunningAll}
           />
         ))}
