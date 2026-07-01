@@ -33,44 +33,7 @@ interface AssembleBody {
   outputFormat?: '16:9' | '9:16';
 }
 
-function wordsToAss(words: { word: string; start: number; end: number }[], timeOffset = 0): string {
-  const toAss = (s: number) => {
-    const adjusted = s + timeOffset;
-    const h = Math.floor(adjusted / 3600);
-    const m = Math.floor((adjusted % 3600) / 60);
-    const sec = Math.floor(adjusted % 60);
-    const cs = Math.round((adjusted % 1) * 100);
-    return `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}.${String(cs).padStart(2, '0')}`;
-  };
 
-  const groups: typeof words[] = [];
-  let group: typeof words = [];
-  for (const w of words) {
-    group.push(w);
-    if (group.length >= 5) { groups.push(group); group = []; }
-  }
-  if (group.length) groups.push(group);
-
-  const header = `[Script Info]
-ScriptType: v4.00+
-PlayResX: 1920
-PlayResY: 1080
-
-[V4+ Styles]
-Format: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, BackColour, Bold, BorderStyle, Outline, Shadow, Alignment, MarginV
-Style: Default,Arial,60,&H0000FFFF,&H00000000,&H80000000,-1,1,3,2,2,50
-
-[Events]
-Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
-`;
-
-  const events = groups.map((g) => {
-    const text = g.map((w) => w.word).join(' ').trim();
-    return `Dialogue: 0,${toAss(g[0].start)},${toAss(g[g.length - 1].end)},Default,,0,0,0,,${text}`;
-  }).join('\n');
-
-  return header + events + '\n';
-}
 
 function getAudioDuration(filePath: string): Promise<number> {
   return new Promise((resolve, reject) => {

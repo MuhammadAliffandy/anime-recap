@@ -24,7 +24,8 @@ function wordsToAss(words: any[]): string {
   let group = [];
   for (const w of words) {
     group.push(w);
-    if (group.length >= 5) { groups.push(group); group = []; }
+    // Group up to 12 words per caption
+    if (group.length >= 12) { groups.push(group); group = []; }
   }
   if (group.length) groups.push(group);
 
@@ -34,15 +35,23 @@ PlayResX: 1920
 PlayResY: 1080
 
 [V4+ Styles]
-Format: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, BackColour, Bold, BorderStyle, Outline, Shadow, Alignment, MarginV
-Style: Default,Arial,60,&H0000FFFF,&H00000000,&H80000000,-1,1,3,2,2,50
+Format: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, BackColour, Bold, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV
+Style: Default,Arial,55,&H00FFFFFF,&H00000000,&H80000000,-1,3,10,0,2,100,100,60
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 `;
 
   const events = groups.map(g => {
-    const text = g.map(w => w.word).join(' ').trim();
+    let text = '';
+    if (g.length > 6) {
+      const mid = Math.ceil(g.length / 2);
+      const line1 = g.slice(0, mid).map(w => w.word).join(' ').trim();
+      const line2 = g.slice(mid).map(w => w.word).join(' ').trim();
+      text = line1 + '\\N' + line2;
+    } else {
+      text = g.map(w => w.word).join(' ').trim();
+    }
     return `Dialogue: 0,${toAss(g[0].start)},${toAss(g[g.length-1].end)},Default,,0,0,0,,${text}`;
   }).join('\n');
 
