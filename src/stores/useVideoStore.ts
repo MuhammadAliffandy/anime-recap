@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { persist, createJSONStorage } from 'zustand/middleware';
 
 export interface Word {
   word: string;
@@ -85,10 +86,12 @@ interface VideoStore {
   clearAll: () => void;
 }
 
-export const useVideoStore = create<VideoStore>((set) => ({
-  episodes: [],
-  animeTitle: '',
-  animeSynopsis: '',
+export const useVideoStore = create<VideoStore>()(
+  persist(
+    (set) => ({
+      episodes: [],
+      animeTitle: '',
+      animeSynopsis: '',
   isAssembling: false,
 
   addEpisode: (ep) =>
@@ -224,4 +227,45 @@ export const useVideoStore = create<VideoStore>((set) => ({
       finalWords: undefined,
       isAssembling: false,
     }),
-}));
+  }),
+  {
+    name: 'anime-recap-video-store',
+    storage: createJSONStorage(() => ({
+      getItem: (name) => localStorage.getItem(name),
+      setItem: (name, value) => {
+        try {
+          localStorage.setItem(name, value);
+        } catch (err) {
+          console.warn('Zustand persist failed (QuotaExceeded), UI will continue but progress is not saved locally.');
+        }
+      },
+      removeItem: (name) => localStorage.removeItem(name),
+    })),
+    merge: (persistedState: any, currentState) => {
+      const merged = { ...currentState, ...persistedState };
+      if (merged.episodes) {
+        merged.episodes = merged.episodes.map((ep: any) => {
+          if (['stripping', 'transcribing', 'scripting', 'tts'].includes(ep.pipelineStage)) {
+            return {
+              ...ep,
+              pipelineStage: 'error',
+              pipelineError: 'Process interrupted by page reload or quota error. Please retry.',
+              isDetectingOped: false,
+            };
+          }
+          return { ...ep, isDetectingOped: false };
+        });
+      }
+      merged.isAssembling = false;
+      return merged as VideoStore;
+    },
+    partialize: (state) => ({
+      ...state,
+      finalWords: undefined,
+      episodes: state.episodes.map(ep => ({
+        ...ep,
+        transcriptWords: undefined,
+      }))
+    }),
+  }
+));

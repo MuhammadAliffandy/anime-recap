@@ -62,7 +62,7 @@ export async function POST(req: NextRequest) {
       file: createReadStream(audioPath) as any,
       model: useGroq ? 'whisper-large-v3' : 'whisper-1',
       response_format: 'verbose_json',
-      prompt: animeTitle ? `Context: Anime "${animeTitle}". ${animeSynopsis || ''} Character names might include standard Japanese names.` : undefined,
+      prompt: animeTitle ? `Context: Anime "${animeTitle}". Character names might include standard Japanese names.` : undefined,
     }) as any;
 
     // Cleanup audio

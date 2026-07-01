@@ -19,6 +19,11 @@ async function runTTSPhase(
 ) {
   const update = (updates: Partial<Episode>) => updateEpisode(episode.id, updates);
   try {
+    if (episode.audioFileId && episode.audioWords) {
+      update({ pipelineStage: 'done' });
+      return;
+    }
+
     update({ pipelineStage: 'tts', pipelineError: undefined });
     const ttsRes = await fetch('/api/tts', {
       method: 'POST',
@@ -42,7 +47,11 @@ async function runTTSPhase(
     const ttsData = await ttsRes.json();
     update({ audioFileId: ttsData.audioFile, audioWords: ttsData.words, pipelineStage: 'done' });
   } catch (err: any) {
-    update({ pipelineStage: 'error', pipelineError: err.message });
+    try {
+      update({ pipelineStage: 'error', pipelineError: err.message });
+    } catch (updateErr) {
+      console.error('Failed to update UI state:', updateErr);
+    }
     throw err;
   }
 }
@@ -54,51 +63,60 @@ async function runScriptAndTTSPhase(
 ) {
   const update = (updates: Partial<Episode>) => updateEpisode(episode.id, updates);
   try {
-    update({ pipelineStage: 'scripting', pipelineError: undefined });
-    const state = useVideoStore.getState();
-    const allEpisodes = state.episodes;
-    
-    // Find previous episode script if available to provide context
-    let previousScript: string | undefined;
-    if (episode.episodeNumber > 1) {
-      const prevEp = allEpisodes.find(e => e.episodeNumber === episode.episodeNumber - 1);
-      if (prevEp && prevEp.script) {
-        previousScript = prevEp.script;
-      }
-    }
+    let currentScript = episode.script;
 
-    const scriptRes = await fetch('/api/script', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-openai-key': settings.openaiKey,
-        'x-claude-key': settings.claudeKey,
-        'x-ollama-model': settings.ollamaModel,
-        'x-ollama-base-url': settings.ollamaBaseUrl,
-      },
-      body: JSON.stringify({
-        mode: 'episode',
-        transcript: episode.transcriptText,
-        provider: settings.llmProvider,
-        episodeNum: episode.episodeNumber,
-        totalEpisodes: allEpisodes.length,
-        animeTitle: state.animeTitle,
-        animeSynopsis: state.animeSynopsis,
-        previousScript,
-      }),
-    });
-    if (!scriptRes.ok) {
-      const e = await scriptRes.json();
-      throw new Error(e.error || 'Script generation failed');
+    if (!currentScript) {
+      update({ pipelineStage: 'scripting', pipelineError: undefined });
+      const state = useVideoStore.getState();
+      const allEpisodes = state.episodes;
+      
+      // Find previous episode script if available to provide context
+      let previousScript: string | undefined;
+      if (episode.episodeNumber > 1) {
+        const prevEp = allEpisodes.find(e => e.episodeNumber === episode.episodeNumber - 1);
+        if (prevEp && prevEp.script) {
+          previousScript = prevEp.script;
+        }
+      }
+
+      const scriptRes = await fetch('/api/script', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-openai-key': settings.openaiKey,
+          'x-claude-key': settings.claudeKey,
+          'x-ollama-model': settings.ollamaModel,
+          'x-ollama-base-url': settings.ollamaBaseUrl,
+        },
+        body: JSON.stringify({
+          mode: 'episode',
+          transcript: episode.transcriptText,
+          provider: settings.llmProvider,
+          episodeNum: episode.episodeNumber,
+          totalEpisodes: allEpisodes.length,
+          animeTitle: state.animeTitle,
+          animeSynopsis: state.animeSynopsis,
+          previousScript,
+        }),
+      });
+      if (!scriptRes.ok) {
+        const e = await scriptRes.json();
+        throw new Error(e.error || 'Script generation failed');
+      }
+      const scriptData = await scriptRes.json();
+      currentScript = scriptData.script;
+      update({ script: currentScript, sceneTimestamps: scriptData.scenes || [] });
     }
-    const scriptData = await scriptRes.json();
-    update({ script: scriptData.script, sceneTimestamps: scriptData.scenes || [] });
 
     // Run TTS immediately after
-    await runTTSPhase({ ...episode, script: scriptData.script }, settings, updateEpisode);
+    await runTTSPhase({ ...episode, script: currentScript }, settings, updateEpisode);
 
   } catch (err: any) {
-    update({ pipelineStage: 'error', pipelineError: err.message });
+    try {
+      update({ pipelineStage: 'error', pipelineError: err.message });
+    } catch (updateErr) {
+      console.error('Failed to update UI state:', updateErr);
+    }
     throw err;
   }
 }
@@ -111,52 +129,65 @@ async function runEpisodePipeline(
   const update = (updates: Partial<Episode>) => updateEpisode(episode.id, updates);
 
   try {
+    let currentStrippedFileId = episode.strippedFileId;
+    let currentTranscriptText = episode.transcriptText;
+    
     // Stage 1: Strip
-    update({ pipelineStage: 'stripping', pipelineError: undefined });
-    const stripRes = await fetch('/api/strip', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        fileId: episode.fileId,
-        openingDuration: episode.openingDuration,
-        endingDuration: episode.endingDuration,
-      }),
-    });
-    if (!stripRes.ok) {
-      const e = await stripRes.json();
-      throw new Error(e.error || 'Strip failed');
+    if (!currentStrippedFileId) {
+      update({ pipelineStage: 'stripping', pipelineError: undefined });
+      const stripRes = await fetch('/api/strip', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fileId: episode.fileId,
+          openingDuration: episode.openingDuration,
+          endingDuration: episode.endingDuration,
+        }),
+      });
+      if (!stripRes.ok) {
+        const e = await stripRes.json();
+        throw new Error(e.error || 'Strip failed');
+      }
+      const stripData = await stripRes.json();
+      currentStrippedFileId = stripData.strippedFileId;
+      update({ strippedFileId: currentStrippedFileId });
     }
-    const stripData = await stripRes.json();
-    update({ strippedFileId: stripData.strippedFileId });
 
     // Stage 2: Transcribe
-    update({ pipelineStage: 'transcribing' });
-    const transcribeRes = await fetch('/api/transcribe', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-openai-key': settings.openaiKey,
-        'x-groq-key': settings.groqKey,
-      },
-      body: JSON.stringify({
-        fileId: stripData.strippedFileId,
-        provider: settings.sttProvider,
-        animeTitle: useVideoStore.getState().animeTitle,
-        animeSynopsis: useVideoStore.getState().animeSynopsis,
-      }),
-    });
-    if (!transcribeRes.ok) {
-      const e = await transcribeRes.json();
-      throw new Error(e.error || 'Transcription failed');
+    if (!currentTranscriptText) {
+      update({ pipelineStage: 'transcribing', pipelineError: undefined });
+      const transcribeRes = await fetch('/api/transcribe', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-openai-key': settings.openaiKey,
+          'x-groq-key': settings.groqKey,
+        },
+        body: JSON.stringify({
+          fileId: currentStrippedFileId,
+          provider: settings.sttProvider,
+          animeTitle: useVideoStore.getState().animeTitle,
+          animeSynopsis: useVideoStore.getState().animeSynopsis,
+        }),
+      });
+      if (!transcribeRes.ok) {
+        const e = await transcribeRes.json();
+        throw new Error(e.error || 'Transcription failed');
+      }
+      const transcribeData = await transcribeRes.json();
+      currentTranscriptText = transcribeData.text;
+      try { update({ transcriptText: currentTranscriptText, transcriptWords: transcribeData.words }); } catch(err) {}
     }
-    const transcribeData = await transcribeRes.json();
-    update({ transcriptText: transcribeData.text, transcriptWords: transcribeData.words });
 
     // Stage 3 & 4: Generate Script and TTS
-    await runScriptAndTTSPhase({ ...episode, transcriptText: transcribeData.text }, settings, updateEpisode);
+    await runScriptAndTTSPhase({ ...episode, transcriptText: currentTranscriptText }, settings, updateEpisode);
 
   } catch (err: any) {
-    update({ pipelineStage: 'error', pipelineError: err.message });
+    try {
+      update({ pipelineStage: 'error', pipelineError: err.message });
+    } catch (updateErr) {
+      console.error('Failed to update UI state:', updateErr);
+    }
     throw err;
   }
 }
@@ -355,6 +386,8 @@ export default function PipelinePage() {
 
   const readyEpisodes = episodes.filter((e) => e.uploadStatus === 'done');
   const doneEpisodes = episodes.filter((e) => e.pipelineStage === 'done');
+  const erroredEpisodes = readyEpisodes.filter((e) => e.pipelineStage === 'error');
+  const pendingEpisodes = readyEpisodes.filter((e) => e.pipelineStage === 'idle' || e.pipelineStage === 'error');
   const isAnyRunning = episodes.some((e) =>
     ['stripping', 'transcribing', 'scripting', 'tts'].includes(e.pipelineStage)
   );
@@ -421,9 +454,13 @@ export default function PipelinePage() {
             <p className="text-xs text-white/40 font-bold uppercase tracking-widest">Complete</p>
           </div>
 
-          {!isRunningAll && !isAnyRunning && doneEpisodes.length < readyEpisodes.length && (
+          {!isRunningAll && !isAnyRunning && doneEpisodes.length < readyEpisodes.length && pendingEpisodes.length > 0 && (
             <button onClick={runAll} className="btn btn-primary">
-              <Zap size={18} /> Run All Episodes
+              {erroredEpisodes.length > 0 && pendingEpisodes.length === erroredEpisodes.length ? (
+                <><RefreshCw size={18} /> Retry {erroredEpisodes.length} Failed</>
+              ) : (
+                <><Zap size={18} /> Run {pendingEpisodes.length} Episodes</>
+              )}
             </button>
           )}
 

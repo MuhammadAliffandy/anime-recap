@@ -68,7 +68,7 @@ export default function EditorPage() {
     let currentChunk = [];
     for (const w of finalWords) {
       currentChunk.push(w);
-      if (currentChunk.length >= 5) {
+      if (currentChunk.length >= 12) {
         chunks.push(currentChunk);
         currentChunk = [];
       }
@@ -142,17 +142,18 @@ export default function EditorPage() {
             {/* Subtitle Overlay Layer */}
             {activeChunk.length > 0 && (
               <div 
-                className="absolute bottom-10 left-0 right-0 text-center pointer-events-none z-10 px-8"
+                className="absolute bottom-10 left-0 right-0 text-center pointer-events-none z-10 px-8 flex justify-center"
               >
-                <span 
-                  className="inline-block text-[42px] font-bold text-yellow-400"
-                  style={{
-                    fontFamily: 'Arial, sans-serif',
-                    textShadow: '2px 2px 0 #000, -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000, 0px 3px 6px rgba(0,0,0,0.8)',
-                  }}
-                >
-                  {activeChunk.map(w => w.word).join(' ')}
-                </span>
+                <div className="bg-black/70 px-4 py-2 inline-block max-w-[80%]">
+                  <span 
+                    className="inline-block text-[28px] font-medium text-white leading-snug"
+                    style={{
+                      fontFamily: 'Arial, sans-serif',
+                    }}
+                  >
+                    {activeChunk.map(w => w.word).join(' ')}
+                  </span>
+                </div>
               </div>
             )}
           </div>

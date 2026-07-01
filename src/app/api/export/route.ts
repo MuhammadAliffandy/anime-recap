@@ -88,7 +88,7 @@ export async function POST(req: NextRequest) {
 
     const videoPath = join(OUTPUT_DIR, videoFileId);
     const audioPath = audioFileId ? join(OUTPUT_DIR, audioFileId) : null;
-    const finalFileId = `final-export-${uuidv4()}.${outputFormat || 'mp4'}`;
+    const finalFileId = `final-export-${uuidv4()}.mp4`;
     const outputPath = join(OUTPUT_DIR, finalFileId);
 
     // Create Subtitles
@@ -178,7 +178,7 @@ export async function POST(req: NextRequest) {
         });
     });
 
-    return NextResponse.json({ success: true, exportedFileId: outFilename });
+    return NextResponse.json({ success: true, exportedFileId: finalFileId });
 
   } catch (error: any) {
     console.error('Export Error:', error);
