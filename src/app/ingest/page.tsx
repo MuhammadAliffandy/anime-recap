@@ -222,7 +222,7 @@ function EpisodeAccordion({
 }
 
 export default function IngestPage() {
-  const { episodes, addEpisode, updateEpisode, animeTitle, setAnimeTitle, reorderEpisodes, autoDetectOped } = useVideoStore();
+  const { episodes, addEpisode, updateEpisode, animeTitle, setAnimeTitle, animeSynopsis, setAnimeSynopsis, reorderEpisodes, autoDetectOped } = useVideoStore();
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const dragOverIndex = useRef<number | null>(null);
   const [isBulkDetecting, setIsBulkDetecting] = useState(false);
@@ -316,6 +316,18 @@ export default function IngestPage() {
               value={animeTitle}
               onChange={(e) => setAnimeTitle(e.target.value)}
               className="bg-white/[0.04] border border-white/10 rounded-2xl px-5 py-3.5 text-white font-bold placeholder:text-white/25 focus:outline-none focus:border-cyan-400/60 focus:ring-2 focus:ring-cyan-400/15 transition-all"
+            />
+          </div>
+
+          {/* Anime Synopsis input */}
+          <div className="flex flex-col gap-2">
+            <label className="text-sm font-bold text-white/60 uppercase tracking-widest">Anime Synopsis & Context</label>
+            <textarea
+              placeholder="Paste the MAL synopsis or list character names here (e.g. Iori, Chisa, Nanaka) to give the AI context..."
+              value={animeSynopsis}
+              onChange={(e) => setAnimeSynopsis(e.target.value)}
+              rows={4}
+              className="bg-white/[0.04] border border-white/10 rounded-2xl px-5 py-3.5 text-sm text-white/80 placeholder:text-white/25 focus:outline-none focus:border-cyan-400/60 focus:ring-2 focus:ring-cyan-400/15 transition-all resize-y custom-scrollbar"
             />
           </div>
 

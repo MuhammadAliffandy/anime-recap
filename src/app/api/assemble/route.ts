@@ -12,10 +12,17 @@ const OUTPUT_DIR = join(process.cwd(), 'output');
 
 if (!existsSync(OUTPUT_DIR)) mkdirSync(OUTPUT_DIR, { recursive: true });
 
+interface SceneTimestamp {
+  start: number;
+  end: number;
+  narration: string;
+}
+
 interface EpisodeSegment {
   videoFileId: string;   // stripped video file in OUTPUT_DIR
   audioFileId: string;   // TTS audio file in OUTPUT_DIR
   audioWords: { word: string; start: number; end: number }[];
+  sceneTimestamps?: SceneTimestamp[];
 }
 
 interface AssembleBody {
@@ -80,6 +87,62 @@ function getVideoDuration(filePath: string): Promise<number> {
       if (err) return reject(err);
       resolve(metadata.format.duration || 0);
     });
+  });
+}
+
+/**
+ * Semantic assembly: cut exact video segments matching each scene timestamp,
+ * then re-encode them at the exact TTS audio duration.
+ * Returns a single combined clip path.
+ */
+async function buildSemanticClip(
+  videoPath: string,
+  audioPath: string,
+  audioDuration: number,
+  scenes: SceneTimestamp[],
+  outPath: string
+): Promise<void> {
+  // Map scene video duration proportionally to TTS audio duration
+  const totalScenesDuration = scenes.reduce((sum, s) => sum + Math.max(s.end - s.start, 0.5), 0);
+
+  // Build a complex filter that trims each scene and concatenates them
+  // then scales total duration to match audio
+  const filterParts: string[] = [];
+  const concatInputs: string[] = [];
+
+  scenes.forEach((scene, i) => {
+    const sceneDuration = Math.max(scene.end - scene.start, 0.5);
+    // How much audio time this scene "owns" proportionally
+    const targetDuration = (sceneDuration / totalScenesDuration) * audioDuration;
+    // Use setpts to stretch/compress the scene to targetDuration
+    const pts = targetDuration / sceneDuration;
+    filterParts.push(
+      `[0:v]trim=start=${scene.start}:end=${scene.end},setpts=${pts.toFixed(6)}*(PTS-STARTPTS)[v${i}]`
+    );
+    concatInputs.push(`[v${i}]`);
+  });
+
+  const filterComplex = [
+    ...filterParts,
+    `${concatInputs.join('')}concat=n=${scenes.length}:v=1:a=0[vout]`,
+  ].join(';');
+
+  await new Promise<void>((resolve, reject) => {
+    ffmpeg()
+      .input(videoPath)
+      .input(audioPath)
+      .outputOptions([
+        '-filter_complex', filterComplex,
+        '-map', '[vout]',
+        '-map', '1:a',
+        '-c:v', 'libx264', '-crf', '18', '-preset', 'medium', '-r', '30',
+        '-c:a', 'aac', '-ar', '44100', '-ac', '2',
+        '-t', String(audioDuration),
+        '-movflags', 'faststart',
+      ])
+      .save(outPath)
+      .on('end', () => resolve())
+      .on('error', (err) => reject(err));
   });
 }
 
@@ -169,9 +232,6 @@ export async function POST(req: NextRequest) {
 
       const audioDuration = await getAudioDuration(audioPath);
 
-      const videoDuration = await getVideoDuration(videoPath);
-      const highlightFilter = buildHighlightFilter(videoDuration, audioDuration, 5); // 5 sec clips
-
       if (ep.audioWords) {
         ep.audioWords.forEach(w => {
           finalWords.push({ word: w.word, start: w.start + cumulativeDuration, end: w.end + cumulativeDuration });
@@ -182,30 +242,43 @@ export async function POST(req: NextRequest) {
       const clipPath = join(OUTPUT_DIR, clipFilename);
       tempFiles.push(clipPath);
 
-      await new Promise<void>((resolve, reject) => {
-        const cmd = ffmpeg().input(videoPath);
-        if (!highlightFilter) {
-          cmd.inputOptions(['-stream_loop', '-1']);
-        }
-        cmd.input(audioPath);
+      const hasSemanticScenes = ep.sceneTimestamps && ep.sceneTimestamps.length > 0;
 
-        const outputOpts: string[] = [];
-        if (highlightFilter) {
-          outputOpts.push('-filter_complex', highlightFilter);
-          outputOpts.push('-map', '[v]');
-        } else {
-          outputOpts.push('-map', '0:v');
-        }
-        outputOpts.push('-map', '1:a');
-        outputOpts.push('-c:v', 'libx264', '-crf', '18', '-preset', 'medium', '-r', '30');
-        outputOpts.push('-c:a', 'aac', '-ar', '44100', '-ac', '2');
-        outputOpts.push('-t', String(audioDuration), '-movflags', 'faststart');
+      if (hasSemanticScenes) {
+        // ── Semantic mode: cut exact scenes from the source video ──
+        console.log(`[Assemble] Episode ${i + 1}: using semantic scene matching (${ep.sceneTimestamps!.length} scenes)`);
+        await buildSemanticClip(videoPath, audioPath, audioDuration, ep.sceneTimestamps!, clipPath);
+      } else {
+        // ── Fallback: uniform montage (old behavior) ──
+        console.log(`[Assemble] Episode ${i + 1}: no scene timestamps, using uniform montage fallback`);
+        const videoDuration = await getVideoDuration(videoPath);
+        const highlightFilter = buildHighlightFilter(videoDuration, audioDuration, 5);
 
-        cmd.outputOptions(outputOpts)
-          .save(clipPath)
-          .on('end', () => resolve())
-          .on('error', (err) => reject(err));
-      });
+        await new Promise<void>((resolve, reject) => {
+          const cmd = ffmpeg().input(videoPath);
+          if (!highlightFilter) {
+            cmd.inputOptions(['-stream_loop', '-1']);
+          }
+          cmd.input(audioPath);
+
+          const outputOpts: string[] = [];
+          if (highlightFilter) {
+            outputOpts.push('-filter_complex', highlightFilter);
+            outputOpts.push('-map', '[v]');
+          } else {
+            outputOpts.push('-map', '0:v');
+          }
+          outputOpts.push('-map', '1:a');
+          outputOpts.push('-c:v', 'libx264', '-crf', '18', '-preset', 'medium', '-r', '30');
+          outputOpts.push('-c:a', 'aac', '-ar', '44100', '-ac', '2');
+          outputOpts.push('-t', String(audioDuration), '-movflags', 'faststart');
+
+          cmd.outputOptions(outputOpts)
+            .save(clipPath)
+            .on('end', () => resolve())
+            .on('error', (err) => reject(err));
+        });
+      }
 
       episodeClips.push(clipFilename);
       cumulativeDuration += audioDuration;

@@ -14,7 +14,7 @@ const UPLOAD_DIR = join(process.cwd(), 'uploads');
 
 export async function POST(req: NextRequest) {
   try {
-    const { fileId, provider } = await req.json();
+    const { fileId, provider, animeTitle, animeSynopsis } = await req.json();
     const groqKey = req.headers.get('x-groq-key');
     const openaiKey = req.headers.get('x-openai-key');
 
@@ -58,11 +58,11 @@ export async function POST(req: NextRequest) {
       baseURL: useGroq ? 'https://api.groq.com/openai/v1' : undefined,
     });
 
-    const response = await client.audio.transcriptions.create({
+    const response = await client.audio.translations.create({
       file: createReadStream(audioPath) as any,
-      model: useGroq ? 'whisper-large-v3-turbo' : 'whisper-1',
+      model: useGroq ? 'whisper-large-v3' : 'whisper-1',
       response_format: 'verbose_json',
-      timestamp_granularities: ['word'],
+      prompt: animeTitle ? `Context: Anime "${animeTitle}". ${animeSynopsis || ''} Character names might include standard Japanese names.` : undefined,
     }) as any;
 
     // Cleanup audio

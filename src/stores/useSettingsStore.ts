@@ -42,7 +42,7 @@ const defaultSettings: AppSettings = {
   sttProvider: 'groq',
   ttsProvider: 'elevenlabs',
   elevenLabsVoiceId: 'pNInz6obpgDQGcFmaJgB', // Adam by default
-  ollamaModel: 'llama3.1:8b',
+  ollamaModel: 'qwen2.5:14b',
   ollamaBaseUrl: 'http://localhost:11434',
   outputFormat: '16:9',
   autoZoomPercent: 15,

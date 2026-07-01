@@ -88,6 +88,7 @@ export default function VoicePage() {
             videoFileId: e.strippedFileId!,
             audioFileId: e.audioFileId!,
             audioWords: e.audioWords || [],
+            sceneTimestamps: e.sceneTimestamps || [],
           })),
         }),
       });
@@ -215,8 +216,8 @@ export default function VoicePage() {
                   <textarea
                     value={ep.script || ''}
                     onChange={(e) => updateEpisode(ep.id, { script: e.target.value })}
-                    className="w-full bg-transparent text-xs text-white/70 leading-relaxed custom-scrollbar outline-none resize-none"
-                    rows={4}
+                    className="w-full bg-transparent text-xs text-white/70 leading-relaxed custom-scrollbar outline-none resize-y min-h-[80px]"
+                    rows={8}
                   />
                 </div>
 

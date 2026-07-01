@@ -47,7 +47,7 @@ export async function POST(req: NextRequest) {
 
     } else if (provider === 'google') {
       // Chunking for Google TTS (max 200 chars per chunk usually, but library handles it)
-      const results = await googleTTS.getAllAudioBase64(script, { lang: 'en', slow: false });
+      const results = await googleTTS.getAllAudioBase64(script, { lang: 'en', slow: false, timeout: 120000 });
       const buffers = results.map((r: any) => Buffer.from(r.base64, 'base64'));
       writeFileSync(filepath, Buffer.concat(buffers));
     } else {

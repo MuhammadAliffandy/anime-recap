@@ -6,6 +6,12 @@ export interface Word {
   end: number;
 }
 
+export interface SceneTimestamp {
+  start: number;   // seconds into the source video
+  end: number;
+  narration: string;
+}
+
 export type PipelineStage = 'idle' | 'stripping' | 'transcribing' | 'scripting' | 'tts' | 'done' | 'error';
 
 export interface Episode {
@@ -27,6 +33,7 @@ export interface Episode {
   transcriptText?: string;
   transcriptWords?: Word[];
   script?: string;               // storytelling script for this episode
+  sceneTimestamps?: SceneTimestamp[]; // semantic scene cuts from LLM
   audioFileId?: string;          // TTS audio file
   audioWords?: Word[];           // synced words for subtitles
 
@@ -41,6 +48,7 @@ export interface Episode {
 interface VideoStore {
   episodes: Episode[];
   animeTitle: string;
+  animeSynopsis: string;
 
   // Prolog (generated after all episode scripts are ready)
   prologScript?: string;
@@ -60,6 +68,7 @@ interface VideoStore {
 
   // Config actions
   setAnimeTitle: (title: string) => void;
+  setAnimeSynopsis: (synopsis: string) => void;
   setEpisodeConfig: (id: string, openingDuration: number, endingDuration: number) => void;
   toggleAccordion: (id: string) => void;
   autoDetectOped: (id: string) => Promise<void>;
@@ -79,6 +88,7 @@ interface VideoStore {
 export const useVideoStore = create<VideoStore>((set) => ({
   episodes: [],
   animeTitle: '',
+  animeSynopsis: '',
   isAssembling: false,
 
   addEpisode: (ep) =>
@@ -128,6 +138,7 @@ export const useVideoStore = create<VideoStore>((set) => ({
     }),
 
   setAnimeTitle: (animeTitle) => set({ animeTitle }),
+  setAnimeSynopsis: (animeSynopsis) => set({ animeSynopsis }),
 
   setEpisodeConfig: (id, openingDuration, endingDuration) =>
     set((state) => ({
@@ -205,6 +216,7 @@ export const useVideoStore = create<VideoStore>((set) => ({
     set({
       episodes: [],
       animeTitle: '',
+      animeSynopsis: '',
       prologScript: undefined,
       prologAudioFileId: undefined,
       prologAudioWords: undefined,

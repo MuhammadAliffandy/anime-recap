@@ -149,7 +149,7 @@ export default function SettingsPage() {
                       type="text"
                       value={settings.ollamaModel}
                       onChange={(e) => settings.setPreference('ollamaModel', e.target.value)}
-                      placeholder="llama3.1:8b"
+                      placeholder="qwen2.5:14b"
                       className="bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-white text-sm font-mono focus:outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/20 transition-all placeholder:text-white/20"
                     />
                     <p className="text-xs text-white/35">Run <code className="bg-white/10 px-1.5 py-0.5 rounded text-emerald-400 font-mono">ollama pull {settings.ollamaModel}</code> to download this model</p>

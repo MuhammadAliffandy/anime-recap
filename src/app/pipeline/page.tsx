@@ -47,6 +47,62 @@ async function runTTSPhase(
   }
 }
 
+async function runScriptAndTTSPhase(
+  episode: Episode,
+  settings: ReturnType<typeof useSettingsStore.getState>,
+  updateEpisode: (id: string, updates: Partial<Episode>) => void
+) {
+  const update = (updates: Partial<Episode>) => updateEpisode(episode.id, updates);
+  try {
+    update({ pipelineStage: 'scripting', pipelineError: undefined });
+    const state = useVideoStore.getState();
+    const allEpisodes = state.episodes;
+    
+    // Find previous episode script if available to provide context
+    let previousScript: string | undefined;
+    if (episode.episodeNumber > 1) {
+      const prevEp = allEpisodes.find(e => e.episodeNumber === episode.episodeNumber - 1);
+      if (prevEp && prevEp.script) {
+        previousScript = prevEp.script;
+      }
+    }
+
+    const scriptRes = await fetch('/api/script', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-openai-key': settings.openaiKey,
+        'x-claude-key': settings.claudeKey,
+        'x-ollama-model': settings.ollamaModel,
+        'x-ollama-base-url': settings.ollamaBaseUrl,
+      },
+      body: JSON.stringify({
+        mode: 'episode',
+        transcript: episode.transcriptText,
+        provider: settings.llmProvider,
+        episodeNum: episode.episodeNumber,
+        totalEpisodes: allEpisodes.length,
+        animeTitle: state.animeTitle,
+        animeSynopsis: state.animeSynopsis,
+        previousScript,
+      }),
+    });
+    if (!scriptRes.ok) {
+      const e = await scriptRes.json();
+      throw new Error(e.error || 'Script generation failed');
+    }
+    const scriptData = await scriptRes.json();
+    update({ script: scriptData.script, sceneTimestamps: scriptData.scenes || [] });
+
+    // Run TTS immediately after
+    await runTTSPhase({ ...episode, script: scriptData.script }, settings, updateEpisode);
+
+  } catch (err: any) {
+    update({ pipelineStage: 'error', pipelineError: err.message });
+    throw err;
+  }
+}
+
 async function runEpisodePipeline(
   episode: Episode,
   settings: ReturnType<typeof useSettingsStore.getState>,
@@ -85,6 +141,8 @@ async function runEpisodePipeline(
       body: JSON.stringify({
         fileId: stripData.strippedFileId,
         provider: settings.sttProvider,
+        animeTitle: useVideoStore.getState().animeTitle,
+        animeSynopsis: useVideoStore.getState().animeSynopsis,
       }),
     });
     if (!transcribeRes.ok) {
@@ -94,48 +152,8 @@ async function runEpisodePipeline(
     const transcribeData = await transcribeRes.json();
     update({ transcriptText: transcribeData.text, transcriptWords: transcribeData.words });
 
-    // Stage 3: Generate Script
-    update({ pipelineStage: 'scripting' });
-    const state = useVideoStore.getState();
-    const allEpisodes = state.episodes;
-    
-    // Find previous episode script if available to provide context
-    let previousScript: string | undefined;
-    if (episode.episodeNumber > 1) {
-      const prevEp = allEpisodes.find(e => e.episodeNumber === episode.episodeNumber - 1);
-      if (prevEp && prevEp.script) {
-        previousScript = prevEp.script;
-      }
-    }
-
-    const scriptRes = await fetch('/api/script', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-openai-key': settings.openaiKey,
-        'x-claude-key': settings.claudeKey,
-        'x-ollama-model': settings.ollamaModel,
-        'x-ollama-base-url': settings.ollamaBaseUrl,
-      },
-      body: JSON.stringify({
-        mode: 'episode',
-        transcript: transcribeData.text,
-        provider: settings.llmProvider,
-        episodeNum: episode.episodeNumber,
-        totalEpisodes: allEpisodes.length,
-        animeTitle: state.animeTitle,
-        previousScript,
-      }),
-    });
-    if (!scriptRes.ok) {
-      const e = await scriptRes.json();
-      throw new Error(e.error || 'Script generation failed');
-    }
-    const scriptData = await scriptRes.json();
-    update({ script: scriptData.script });
-
-    // Stage 4: TTS
-    await runTTSPhase({ ...episode, script: scriptData.script }, settings, updateEpisode);
+    // Stage 3 & 4: Generate Script and TTS
+    await runScriptAndTTSPhase({ ...episode, transcriptText: transcribeData.text }, settings, updateEpisode);
 
   } catch (err: any) {
     update({ pipelineStage: 'error', pipelineError: err.message });
@@ -198,12 +216,14 @@ function StageRow({ stage, current }: { stage: typeof STAGES[0]; current: Pipeli
 function EpisodeCard({
   episode,
   onRun,
+  onRunScript,
   onRunTTS,
   updateEpisode,
   isRunningAny,
 }: {
   episode: Episode;
   onRun: (ep: Episode) => void;
+  onRunScript: (ep: Episode) => void;
   onRunTTS: (ep: Episode) => void;
   updateEpisode: (id: string, updates: Partial<Episode>) => void;
   isRunningAny: boolean;
@@ -294,16 +314,30 @@ function EpisodeCard({
               <textarea
                 value={episode.script}
                 onChange={(e) => updateEpisode(episode.id, { script: e.target.value })}
-                className="w-full bg-transparent text-xs text-white/70 leading-relaxed custom-scrollbar outline-none resize-none"
-                rows={8}
+                className="w-full bg-transparent text-xs text-white/70 leading-relaxed custom-scrollbar outline-none resize-y min-h-[100px]"
+                rows={12}
               />
             </div>
           )}
 
           {episode.transcriptText && (
-            <div className="bg-black/40 border border-white/8 rounded-xl p-4">
-              <p className="text-xs font-bold text-cyan-400 uppercase tracking-widest mb-2">Transcript Preview</p>
-              <p className="text-xs text-white/50 leading-relaxed line-clamp-4">{episode.transcriptText}</p>
+            <div className="bg-black/40 border border-white/8 rounded-xl p-4 flex flex-col gap-3">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-bold text-cyan-400 uppercase tracking-widest">Transcript Preview</p>
+                <button
+                  onClick={() => onRunScript(episode)}
+                  disabled={isRunning}
+                  className="btn btn-sm !py-1 !px-2.5 text-[10px] bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30 border border-cyan-500/30"
+                >
+                  <Brain size={12} className="mr-1" /> Regenerate Script
+                </button>
+              </div>
+              <textarea
+                value={episode.transcriptText}
+                onChange={(e) => updateEpisode(episode.id, { transcriptText: e.target.value })}
+                className="w-full bg-transparent text-xs text-white/70 leading-relaxed custom-scrollbar outline-none resize-y min-h-[100px]"
+                rows={12}
+              />
             </div>
           )}
         </div>
@@ -414,6 +448,7 @@ export default function PipelinePage() {
             key={ep.id}
             episode={ep}
             onRun={runSingle}
+            onRunScript={async (epToRun) => await runScriptAndTTSPhase(epToRun, settings, updateEpisode)}
             onRunTTS={async (epToRun) => await runTTSPhase(epToRun, settings, updateEpisode)}
             updateEpisode={updateEpisode}
             isRunningAny={isAnyRunning || isRunningAll}
