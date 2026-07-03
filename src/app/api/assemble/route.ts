@@ -55,48 +55,110 @@ function getVideoDuration(filePath: string): Promise<number> {
 
 /**
  * Semantic assembly: cut exact video segments matching each scene timestamp,
- * then re-encode them at the exact TTS audio duration.
- * Returns a single combined clip path.
+ * concatenate them at NORMAL speed (no stretch/compress) with crossfade dissolve
+ * transitions between scenes, then trim/loop to match the TTS audio duration exactly.
  */
 async function buildSemanticClip(
   videoPath: string,
   audioPath: string,
   audioDuration: number,
   scenes: SceneTimestamp[],
-  outPath: string
+  tempDir: string,
+  outPath: string,
+  tempFiles: string[]
 ): Promise<void> {
-  // Map scene video duration proportionally to TTS audio duration
-  const totalScenesDuration = scenes.reduce((sum, s) => sum + Math.max(s.end - s.start, 0.5), 0);
+  const FADE_DURATION = 0.3; // seconds for crossfade dissolve between scenes
 
-  // Build a complex filter that trims each scene and concatenates them
-  // then scales total duration to match audio
-  const filterParts: string[] = [];
-  const concatInputs: string[] = [];
+  // Step 1: cut each scene at 1x speed into a temp clip
+  const sceneClipPaths: string[] = [];
+  const sceneClipDurations: number[] = [];
 
-  scenes.forEach((scene, i) => {
-    const sceneDuration = Math.max(scene.end - scene.start, 0.5);
-    // How much audio time this scene "owns" proportionally
-    const targetDuration = (sceneDuration / totalScenesDuration) * audioDuration;
-    // Use setpts to stretch/compress the scene to targetDuration
-    const pts = targetDuration / sceneDuration;
-    filterParts.push(
-      `[0:v]trim=start=${scene.start}:end=${scene.end},setpts=${pts.toFixed(6)}*(PTS-STARTPTS)[v${i}]`
-    );
-    concatInputs.push(`[v${i}]`);
-  });
+  for (let i = 0; i < scenes.length; i++) {
+    const scene = scenes[i];
+    const start = Math.max(scene.start - 0.1, 0); // tiny pre-roll for accuracy
+    const duration = Math.max(scene.end - scene.start, 0.5);
+    const sceneClipPath = join(tempDir, `scene-${uuidv4()}.mp4`);
+    tempFiles.push(sceneClipPath);
 
-  const filterComplex = [
-    ...filterParts,
-    `${concatInputs.join('')}concat=n=${scenes.length}:v=1:a=0[vout]`,
-  ].join(';');
+    await new Promise<void>((resolve, reject) => {
+      ffmpeg(videoPath)
+        .inputOptions([`-ss ${start.toFixed(3)}`])
+        .outputOptions([
+          '-t', duration.toFixed(3),
+          '-c:v', 'libx264', '-crf', '18', '-preset', 'ultrafast',
+          '-r', '30',
+          '-an',
+          '-avoid_negative_ts', 'make_zero',
+        ])
+        .save(sceneClipPath)
+        .on('end', () => resolve())
+        .on('error', (err) => reject(err));
+    });
+    sceneClipPaths.push(sceneClipPath);
+    sceneClipDurations.push(duration);
+  }
 
+  // Step 2: combine clips with crossfade dissolve between each pair
+  const sceneCombinedPath = join(tempDir, `scene-combined-${uuidv4()}.mp4`);
+  tempFiles.push(sceneCombinedPath);
+
+  if (sceneClipPaths.length === 1) {
+    // Only one scene — no crossfade needed, just copy
+    await new Promise<void>((resolve, reject) => {
+      ffmpeg(sceneClipPaths[0])
+        .outputOptions(['-c:v', 'libx264', '-crf', '18', '-preset', 'ultrafast', '-r', '30', '-an'])
+        .save(sceneCombinedPath)
+        .on('end', () => resolve())
+        .on('error', (err) => reject(err));
+    });
+  } else {
+    // Multiple scenes: chain xfade dissolve between each consecutive pair
+    // [0:v][1:v]xfade=offset=D0[x0]; [x0][2:v]xfade=offset=D1[x1]; ... → [vout]
+    const filterParts: string[] = [];
+    let cumulativeOffset = 0;
+    let prevLabel = '[0:v]';
+
+    for (let i = 1; i < sceneClipPaths.length; i++) {
+      cumulativeOffset += sceneClipDurations[i - 1] - FADE_DURATION;
+      const outLabel = i === sceneClipPaths.length - 1 ? '[vout]' : `[x${i}]`;
+      filterParts.push(
+        `${prevLabel}[${i}:v]xfade=transition=dissolve:duration=${FADE_DURATION}:offset=${cumulativeOffset.toFixed(3)}${outLabel}`
+      );
+      prevLabel = `[x${i}]`;
+    }
+
+    const cmd = ffmpeg();
+    sceneClipPaths.forEach(p => cmd.input(p));
+
+    await new Promise<void>((resolve, reject) => {
+      cmd
+        .outputOptions([
+          '-filter_complex', filterParts.join(';'),
+          '-map', '[vout]',
+          '-c:v', 'libx264', '-crf', '18', '-preset', 'ultrafast',
+          '-r', '30', '-an',
+        ])
+        .save(sceneCombinedPath)
+        .on('end', () => resolve())
+        .on('error', (err) => reject(err));
+    });
+  }
+
+  // Step 3: calculate total combined duration (accounting for fade overlaps)
+  const totalSceneDuration = sceneClipDurations.reduce((s, d) => s + d, 0)
+    - FADE_DURATION * Math.max(sceneClipPaths.length - 1, 0);
+
+  // Step 4: if scenes shorter than audio → loop; then trim to exact audio duration
   await new Promise<void>((resolve, reject) => {
-    ffmpeg()
-      .input(videoPath)
-      .input(audioPath)
+    const cmd = ffmpeg();
+    if (totalSceneDuration < audioDuration) {
+      cmd.input(sceneCombinedPath).inputOptions(['-stream_loop', '-1']);
+    } else {
+      cmd.input(sceneCombinedPath);
+    }
+    cmd.input(audioPath)
       .outputOptions([
-        '-filter_complex', filterComplex,
-        '-map', '[vout]',
+        '-map', '0:v',
         '-map', '1:a',
         '-c:v', 'libx264', '-crf', '18', '-preset', 'medium', '-r', '30',
         '-c:a', 'aac', '-ar', '44100', '-ac', '2',
@@ -210,7 +272,7 @@ export async function POST(req: NextRequest) {
       if (hasSemanticScenes) {
         // ── Semantic mode: cut exact scenes from the source video ──
         console.log(`[Assemble] Episode ${i + 1}: using semantic scene matching (${ep.sceneTimestamps!.length} scenes)`);
-        await buildSemanticClip(videoPath, audioPath, audioDuration, ep.sceneTimestamps!, clipPath);
+        await buildSemanticClip(videoPath, audioPath, audioDuration, ep.sceneTimestamps!, OUTPUT_DIR, clipPath, tempFiles);
       } else {
         // ── Fallback: uniform montage (old behavior) ──
         console.log(`[Assemble] Episode ${i + 1}: no scene timestamps, using uniform montage fallback`);
