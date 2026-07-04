@@ -205,6 +205,22 @@ export default function SettingsPage() {
                   </button>
                 ))}
               </div>
+
+              {settings.ttsProvider === 'elevenlabs' && (
+                <div className="flex flex-col gap-2 mt-2">
+                  <label className="text-xs font-bold text-white/60 tracking-wide">ElevenLabs Voice ID</label>
+                  <input
+                    type="text"
+                    value={settings.elevenLabsVoiceId}
+                    onChange={(e) => settings.setPreference('elevenLabsVoiceId', e.target.value)}
+                    placeholder="pNInz6obpgDQGcFmaJgB"
+                    className="bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-white text-sm font-mono focus:outline-none focus:border-white focus:ring-2 focus:ring-white/20 transition-all placeholder:text-white/20"
+                  />
+                  <p className="text-xs text-white/35">
+                    Copy the Voice ID from your ElevenLabs Voice Library. Default is Adam (<code className="bg-white/10 px-1 rounded">pNInz6obpgDQGcFmaJgB</code>).
+                  </p>
+                </div>
+              )}
             </div>
           </div>
 
