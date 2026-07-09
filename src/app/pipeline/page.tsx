@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useVideoStore, Episode, PipelineStage } from '@/stores/useVideoStore';
 import { usePipelineStore } from '@/stores/usePipelineStore';
 import { useSettingsStore } from '@/stores/useSettingsStore';
@@ -380,9 +380,12 @@ function EpisodeCard({
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function PipelinePage() {
-  const { episodes, updateEpisode, animeTitle } = useVideoStore();
+  const { episodes, updateEpisode, animeTitle, reorderEpisodes } = useVideoStore();
   const { isRunningAll, setRunningAll } = usePipelineStore();
   const settings = useSettingsStore();
+
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+  const dragOverIndex = useRef<number | null>(null);
 
   const readyEpisodes = episodes.filter((e) => e.uploadStatus === 'done');
   const doneEpisodes = episodes.filter((e) => e.pipelineStage === 'done');
@@ -480,17 +483,41 @@ export default function PipelinePage() {
 
       {/* Episode Cards */}
       <div className="flex flex-col gap-4">
-        {readyEpisodes.map((ep) => (
-          <EpisodeCard
-            key={ep.id}
-            episode={ep}
-            onRun={runSingle}
-            onRunScript={async (epToRun) => await runScriptAndTTSPhase(epToRun, settings, updateEpisode)}
-            onRunTTS={async (epToRun) => await runTTSPhase(epToRun, settings, updateEpisode)}
-            updateEpisode={updateEpisode}
-            isRunningAny={isAnyRunning || isRunningAll}
-          />
-        ))}
+        {readyEpisodes.map((ep, i) => {
+          // Calculate true index in the main episodes array for the reorder function
+          const trueIndex = episodes.findIndex((e) => e.id === ep.id);
+          
+          return (
+            <div
+              key={ep.id}
+              draggable={!isAnyRunning && !isRunningAll}
+              onDragStart={() => setDraggedIndex(trueIndex)}
+              onDragOver={(e) => {
+                e.preventDefault();
+                if (draggedIndex === null || draggedIndex === trueIndex) return;
+                dragOverIndex.current = trueIndex;
+                reorderEpisodes(draggedIndex, trueIndex);
+                setDraggedIndex(trueIndex);
+              }}
+              onDragEnd={() => {
+                setDraggedIndex(null);
+                dragOverIndex.current = null;
+              }}
+              className={`transition-all duration-300 ${
+                draggedIndex === trueIndex ? 'opacity-30 scale-95' : 'opacity-100 scale-100'
+              } ${!isAnyRunning && !isRunningAll ? 'cursor-grab active:cursor-grabbing' : ''}`}
+            >
+              <EpisodeCard
+                episode={ep}
+                onRun={runSingle}
+                onRunScript={async (epToRun) => await runScriptAndTTSPhase(epToRun, settings, updateEpisode)}
+                onRunTTS={async (epToRun) => await runTTSPhase(epToRun, settings, updateEpisode)}
+                updateEpisode={updateEpisode}
+                isRunningAny={isAnyRunning || isRunningAll}
+              />
+            </div>
+          );
+        })}
       </div>
     </div>
   );
