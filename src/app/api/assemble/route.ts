@@ -31,6 +31,8 @@ interface AssembleBody {
   prologAudioWords?: { word: string; start: number; end: number }[];
   episodes: EpisodeSegment[];
   outputFormat?: '16:9' | '9:16';
+  /** Height % of the bottom region to blur for hiding hardcoded subtitles. Default 15. */
+  subtitleRegionHeightPct?: number;
 }
 
 
@@ -54,6 +56,68 @@ function getVideoDuration(filePath: string): Promise<number> {
 }
 
 /**
+ * Builds an FFmpeg filter_complex string that:
+ *  1. Blurs the bottom strip of the video (to cover hardcoded subs).
+ *  2. Overlays our narration words as timed drawtext captions.
+ *
+ * @param words - word-level timestamps (relative to start of clip, in seconds)
+ * @param blurHeightPct - fraction of video height to blur from bottom (e.g. 0.15 = 15%)
+ * @param videoLabel - input video stream label
+ * @param outLabel - output stream label
+ */
+function buildSubtitleOverlayFilter(
+  words: { word: string; start: number; end: number }[],
+  blurHeightPct: number,
+  videoLabel = '[inv]',
+  outLabel = '[vfinal]'
+): string {
+  const topPct = (1 - blurHeightPct).toFixed(4);
+  const blurPct = blurHeightPct.toFixed(4);
+
+  const escapeText = (t: string) =>
+    t.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/:/g, '\\:').replace(/%/g, '\\%');
+
+  const parts: string[] = [
+    // Crop the subtitle region from the bottom
+    `${videoLabel}crop=iw:ih*${blurPct}:0:ih*${topPct}[sub_strip]`,
+    // Blur it heavily
+    `[sub_strip]boxblur=luma_radius=25:luma_power=3[blurred_strip]`,
+    // Overlay blurred strip back onto the original video at the same Y position
+    `${videoLabel}[blurred_strip]overlay=0:H*${topPct}[v_blurred]`,
+  ];
+
+  let prevLabel = '[v_blurred]';
+
+  words.forEach((w, i) => {
+    const isLast = i === words.length - 1;
+    const nextLabel = isLast ? outLabel : `[dtxt${i}]`;
+    const safeWord = escapeText(w.word);
+    // Center horizontally, vertically center within the blurred subtitle strip
+    const yExpr = `h*${(1 - blurHeightPct / 2).toFixed(4)}-text_h/2`;
+    parts.push(
+      `${prevLabel}drawtext=` +
+        `text='${safeWord}':` +
+        `fontsize=h/15:` +
+        `fontcolor=white:` +
+        `borderw=3:bordercolor=black:` +
+        `font=Arial:` +
+        `x=(w-text_w)/2:` +
+        `y=${yExpr}:` +
+        `enable='between(t\\,${w.start.toFixed(3)}\\,${w.end.toFixed(3)})'` +
+        nextLabel
+    );
+    prevLabel = nextLabel;
+  });
+
+  // If no words at all, pass video through unchanged
+  if (words.length === 0) {
+    parts.push(`[v_blurred]copy${outLabel}`);
+  }
+
+  return parts.join(';');
+}
+
+/**
  * Semantic assembly: cut exact video segments matching each scene timestamp,
  * concatenate them at NORMAL speed (no stretch/compress) with crossfade dissolve
  * transitions between scenes, then trim/loop to match the TTS audio duration exactly.
@@ -65,7 +129,9 @@ async function buildSemanticClip(
   scenes: SceneTimestamp[],
   tempDir: string,
   outPath: string,
-  tempFiles: string[]
+  tempFiles: string[],
+  words: { word: string; start: number; end: number }[],
+  blurHeightPct: number
 ): Promise<void> {
   const FADE_DURATION = 0.3; // seconds for crossfade dissolve between scenes
 
@@ -148,7 +214,7 @@ async function buildSemanticClip(
   const totalSceneDuration = sceneClipDurations.reduce((s, d) => s + d, 0)
     - FADE_DURATION * Math.max(sceneClipPaths.length - 1, 0);
 
-  // Step 4: if scenes shorter than audio → loop; then trim to exact audio duration
+  // Step 4: apply subtitle blur+overlay, loop if needed, trim to exact audio duration
   await new Promise<void>((resolve, reject) => {
     const cmd = ffmpeg();
     if (totalSceneDuration < audioDuration) {
@@ -156,15 +222,18 @@ async function buildSemanticClip(
     } else {
       cmd.input(sceneCombinedPath);
     }
-    cmd.input(audioPath)
-      .outputOptions([
-        '-map', '0:v',
-        '-map', '1:a',
-        '-c:v', 'libx264', '-crf', '18', '-preset', 'medium', '-r', '30',
-        '-c:a', 'aac', '-ar', '44100', '-ac', '2',
-        '-t', String(audioDuration),
-        '-movflags', 'faststart',
-      ])
+    cmd.input(audioPath);
+
+    const subtitleFilter = buildSubtitleOverlayFilter(words, blurHeightPct, '[0:v]', '[vfinal]');
+    cmd.outputOptions([
+      '-filter_complex', subtitleFilter,
+      '-map', '[vfinal]',
+      '-map', '1:a',
+      '-c:v', 'libx264', '-crf', '18', '-preset', 'medium', '-r', '30',
+      '-c:a', 'aac', '-ar', '44100', '-ac', '2',
+      '-t', String(audioDuration),
+      '-movflags', 'faststart',
+    ])
       .save(outPath)
       .on('end', () => resolve())
       .on('error', (err) => reject(err));
@@ -182,7 +251,8 @@ export async function POST(req: NextRequest) {
 
   try {
     const body: AssembleBody = await req.json();
-    const { animeTitle, prologAudioFileId, prologAudioWords = [], episodes, outputFormat = '16:9' } = body;
+    const { animeTitle, prologAudioFileId, prologAudioWords = [], episodes, outputFormat = '16:9', subtitleRegionHeightPct = 15 } = body;
+    const blurHeightPct = Math.min(Math.max(subtitleRegionHeightPct / 100, 0.05), 0.35); // clamp 5%–35%
 
     if (!episodes || episodes.length === 0) {
       return NextResponse.json({ error: 'No episodes provided' }, { status: 400 });
@@ -272,12 +342,14 @@ export async function POST(req: NextRequest) {
       if (hasSemanticScenes) {
         // ── Semantic mode: cut exact scenes from the source video ──
         console.log(`[Assemble] Episode ${i + 1}: using semantic scene matching (${ep.sceneTimestamps!.length} scenes)`);
-        await buildSemanticClip(videoPath, audioPath, audioDuration, ep.sceneTimestamps!, OUTPUT_DIR, clipPath, tempFiles);
+        await buildSemanticClip(videoPath, audioPath, audioDuration, ep.sceneTimestamps!, OUTPUT_DIR, clipPath, tempFiles, ep.audioWords ?? [], blurHeightPct);
       } else {
-        // ── Fallback: uniform montage (old behavior) ──
+        // ── Fallback: uniform montage ──
         console.log(`[Assemble] Episode ${i + 1}: no scene timestamps, using uniform montage fallback`);
         const videoDuration = await getVideoDuration(videoPath);
         const highlightFilter = buildHighlightFilter(videoDuration, audioDuration, 5);
+
+        const subtitleFilter = buildSubtitleOverlayFilter(ep.audioWords ?? [], blurHeightPct, '[vraw]', '[vfinal]');
 
         await new Promise<void>((resolve, reject) => {
           const cmd = ffmpeg().input(videoPath);
@@ -286,19 +358,26 @@ export async function POST(req: NextRequest) {
           }
           cmd.input(audioPath);
 
-          const outputOpts: string[] = [];
+          // Build a combined filter: first highlight select (if any), then subtitle overlay
+          let filterComplex: string;
           if (highlightFilter) {
-            outputOpts.push('-filter_complex', highlightFilter);
-            outputOpts.push('-map', '[v]');
+            // highlightFilter outputs [v] — pipe into subtitle overlay
+            const adjustedHighlight = highlightFilter.replace('[v]', '[vraw]');
+            filterComplex = adjustedHighlight + ';' + subtitleFilter;
           } else {
-            outputOpts.push('-map', '0:v');
+            // No highlight filter — feed raw input into subtitle overlay
+            filterComplex = '[0:v]copy[vraw];' + subtitleFilter;
           }
-          outputOpts.push('-map', '1:a');
-          outputOpts.push('-c:v', 'libx264', '-crf', '18', '-preset', 'medium', '-r', '30');
-          outputOpts.push('-c:a', 'aac', '-ar', '44100', '-ac', '2');
-          outputOpts.push('-t', String(audioDuration), '-movflags', 'faststart');
 
-          cmd.outputOptions(outputOpts)
+          cmd.outputOptions([
+            '-filter_complex', filterComplex,
+            '-map', '[vfinal]',
+            '-map', '1:a',
+            '-c:v', 'libx264', '-crf', '18', '-preset', 'medium', '-r', '30',
+            '-c:a', 'aac', '-ar', '44100', '-ac', '2',
+            '-t', String(audioDuration),
+            '-movflags', 'faststart',
+          ])
             .save(clipPath)
             .on('end', () => resolve())
             .on('error', (err) => reject(err));

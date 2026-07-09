@@ -11,6 +11,25 @@ ffmpeg.setFfmpegPath(join(process.cwd(), 'node_modules', 'ffmpeg-static', ffmpeg
 const UPLOAD_DIR = join(process.cwd(), 'uploads');
 const OUTPUT_DIR = join(process.cwd(), 'output');
 
+/**
+ * Detect if a video file has soft subtitle streams (removable streams).
+ * Returns true if ffprobe finds any subtitle codec stream.
+ */
+function detectSoftSubs(videoPath: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    ffmpeg.ffprobe(videoPath, (err, metadata) => {
+      if (err) {
+        resolve(false);
+        return;
+      }
+      const hasSubs = (metadata.streams || []).some(
+        (s) => s.codec_type === 'subtitle'
+      );
+      resolve(hasSubs);
+    });
+  });
+}
+
 export async function POST(req: NextRequest) {
   try {
     const { fileIds, autoZoomPercent } = await req.json();
@@ -24,7 +43,7 @@ export async function POST(req: NextRequest) {
 
     let targetInputPath = join(UPLOAD_DIR, fileIds[0]);
 
-    // If multiple files, we need to merge them first using concat demuxer
+    // If multiple files, merge them first using concat demuxer
     if (fileIds.length > 1) {
       const listPath = join(UPLOAD_DIR, `concat-${uuidv4()}.txt`);
       const fileListContent = fileIds
@@ -54,26 +73,39 @@ export async function POST(req: NextRequest) {
       targetInputPath = mergedTempPath;
     }
 
-    // Now apply crop if necessary, or just copy to output
+    // Detect soft subtitle streams BEFORE encoding
+    const hadSoftSubs = await detectSoftSubs(targetInputPath);
+    if (hadSoftSubs) {
+      console.log('[Process] Soft subtitle stream detected — will strip with -sn');
+    }
+
+    // Apply crop/zoom if needed, always strip soft subs (-sn)
     await new Promise<void>((resolve, reject) => {
       let command = ffmpeg(targetInputPath);
 
+      const outputOpts: string[] = [];
+
       if (autoZoomPercent && autoZoomPercent > 0) {
-        // Calculate crop scale based on percent (e.g. 15% -> scale=1.15)
+        // Scale up then crop center to original dimensions
         const sc = 1 + (autoZoomPercent / 100);
-        // We scale up by sc, then crop the center to the original dimensions
         command = command.videoFilters([
           `scale=iw*${sc.toFixed(3)}:ih*${sc.toFixed(3)}`,
           `crop=iw/${sc.toFixed(3)}:ih/${sc.toFixed(3)}`
         ]);
-        // re-encode video, copy audio
-        command = command.outputOptions(['-c:v', 'libx264', '-crf', '22', '-preset', 'fast', '-c:a', 'copy']);
+        outputOpts.push('-c:v', 'libx264', '-crf', '22', '-preset', 'fast', '-c:a', 'copy');
+      } else if (hadSoftSubs) {
+        // Need to re-encode video pass to ensure subtitle streams are stripped
+        outputOpts.push('-c:v', 'libx264', '-crf', '22', '-preset', 'fast', '-c:a', 'copy');
       } else {
-        // No crop needed, just copy stream
-        command = command.outputOptions(['-c', 'copy']);
+        // No crop, no subs — just stream copy
+        outputOpts.push('-c', 'copy');
       }
 
+      // Always strip subtitle streams from output
+      outputOpts.push('-sn');
+
       command
+        .outputOptions(outputOpts)
         .save(outputPath)
         .on('end', () => {
           // Cleanup temp merge file if we made one
@@ -85,7 +117,7 @@ export async function POST(req: NextRequest) {
         .on('error', (err) => reject(err));
     });
 
-    return NextResponse.json({ success: true, mergedFileId: outputFilename });
+    return NextResponse.json({ success: true, mergedFileId: outputFilename, hadSoftSubs });
 
   } catch (error: any) {
     console.error('Process Error:', error);
