@@ -490,7 +490,7 @@ export default function PipelinePage() {
           return (
             <div
               key={ep.id}
-              draggable={!isAnyRunning && !isRunningAll}
+              draggable
               onDragStart={() => setDraggedIndex(trueIndex)}
               onDragOver={(e) => {
                 e.preventDefault();
@@ -503,9 +503,9 @@ export default function PipelinePage() {
                 setDraggedIndex(null);
                 dragOverIndex.current = null;
               }}
-              className={`transition-all duration-300 ${
+              className={`transition-all duration-300 cursor-grab active:cursor-grabbing ${
                 draggedIndex === trueIndex ? 'opacity-30 scale-95' : 'opacity-100 scale-100'
-              } ${!isAnyRunning && !isRunningAll ? 'cursor-grab active:cursor-grabbing' : ''}`}
+              }`}
             >
               <EpisodeCard
                 episode={ep}
