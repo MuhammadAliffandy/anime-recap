@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { useVideoStore, Episode } from '@/stores/useVideoStore';
 import { useSettingsStore } from '@/stores/useSettingsStore';
+import { useEditorStore } from '@/stores/useEditorStore';
 import {
   Loader2, CheckCircle2, AlertCircle, Download, PlayCircle,
   Volume2, Film, Sparkles, Layers,
@@ -64,6 +65,7 @@ export default function VoicePage() {
     updateEpisode,
   } = useVideoStore();
   const settings = useSettingsStore();
+  const { setExportedFileId } = useEditorStore();
 
   const [error, setError] = useState('');
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
@@ -76,6 +78,7 @@ export default function VoicePage() {
     if (doneEpisodes.length === 0) return;
     setAssembling(true);
     setError('');
+    setExportedFileId(null);
     try {
       const res = await fetch('/api/assemble', {
         method: 'POST',

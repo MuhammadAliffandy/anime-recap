@@ -19,7 +19,7 @@ interface EditorStore {
   setTransform: <K extends keyof EditorStore>(key: K, value: EditorStore[K]) => void;
   setExporting: (status: boolean) => void;
   setExportProgress: (progress: number) => void;
-  setExportedFileId: (id: string) => void;
+  setExportedFileId: (id: string | null) => void;
 }
 
 export const useEditorStore = create<EditorStore>((set) => ({
@@ -38,7 +38,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
   exportProgress: 0,
   exportedFileId: null,
 
-  setTransform: (key, value) => set((state) => ({ ...state, [key]: value })),
+  setTransform: (key, value) => set((state) => ({ ...state, [key]: value, exportedFileId: null })),
   setExporting: (status) => set({ isExporting: status }),
   setExportProgress: (progress) => set({ exportProgress: progress }),
   setExportedFileId: (id) => set({ exportedFileId: id }),
