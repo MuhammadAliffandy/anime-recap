@@ -164,12 +164,11 @@ async function buildSemanticClip(
     sceneClipDurations.push(duration);
   }
 
-  // Step 2: combine clips with crossfade dissolve between each pair
+  // Step 2: combine clips with concat demuxer (fast and avoids SIGSEGV)
   const sceneCombinedPath = join(tempDir, `scene-combined-${uuidv4()}.mp4`);
   tempFiles.push(sceneCombinedPath);
 
   if (sceneClipPaths.length === 1) {
-    // Only one scene — no crossfade needed, just copy
     await new Promise<void>((resolve, reject) => {
       ffmpeg(sceneClipPaths[0])
         .outputOptions(['-c:v', 'libx264', '-crf', '18', '-preset', 'ultrafast', '-r', '30', '-an'])
@@ -178,41 +177,24 @@ async function buildSemanticClip(
         .on('error', (err) => reject(err));
     });
   } else {
-    // Multiple scenes: chain xfade dissolve between each consecutive pair
-    // [0:v][1:v]xfade=offset=D0[x0]; [x0][2:v]xfade=offset=D1[x1]; ... → [vout]
-    const filterParts: string[] = [];
-    let cumulativeOffset = 0;
-    let prevLabel = '[0:v]';
-
-    for (let i = 1; i < sceneClipPaths.length; i++) {
-      cumulativeOffset += sceneClipDurations[i - 1] - FADE_DURATION;
-      const outLabel = i === sceneClipPaths.length - 1 ? '[vout]' : `[x${i}]`;
-      filterParts.push(
-        `${prevLabel}[${i}:v]xfade=transition=dissolve:duration=${FADE_DURATION}:offset=${cumulativeOffset.toFixed(3)}${outLabel}`
-      );
-      prevLabel = `[x${i}]`;
-    }
-
-    const cmd = ffmpeg();
-    sceneClipPaths.forEach(p => cmd.input(p));
+    const listPath = join(tempDir, `concat-scenes-${uuidv4()}.txt`);
+    tempFiles.push(listPath);
+    const listContent = sceneClipPaths.map(p => `file '${p.replace(/'/g, "'\\''")}'`).join('\n');
+    writeFileSync(listPath, listContent);
 
     await new Promise<void>((resolve, reject) => {
-      cmd
-        .outputOptions([
-          '-filter_complex', filterParts.join(';'),
-          '-map', '[vout]',
-          '-c:v', 'libx264', '-crf', '18', '-preset', 'ultrafast',
-          '-r', '30', '-an',
-        ])
+      ffmpeg()
+        .input(listPath)
+        .inputOptions(['-f', 'concat', '-safe', '0'])
+        .outputOptions(['-c', 'copy'])
         .save(sceneCombinedPath)
         .on('end', () => resolve())
         .on('error', (err) => reject(err));
     });
   }
 
-  // Step 3: calculate total combined duration (accounting for fade overlaps)
-  const totalSceneDuration = sceneClipDurations.reduce((s, d) => s + d, 0)
-    - FADE_DURATION * Math.max(sceneClipPaths.length - 1, 0);
+  // Step 3: calculate total combined duration
+  const totalSceneDuration = sceneClipDurations.reduce((s, d) => s + d, 0);
 
   // Step 4: apply subtitle blur+overlay, loop if needed, trim to exact audio duration
   await new Promise<void>((resolve, reject) => {
