@@ -9,7 +9,7 @@ const OUTPUT_DIR = join(process.cwd(), 'output');
 
 export async function POST(req: NextRequest) {
   try {
-    const { script, provider, voiceId, sttProvider } = await req.json();
+    const { script, provider, voiceId, openaiVoiceId, sttProvider } = await req.json();
     const elevenLabsKey = req.headers.get('x-elevenlabs-key');
     const groqKey = req.headers.get('x-groq-key');
     const openaiKey = req.headers.get('x-openai-key');
@@ -50,6 +50,17 @@ export async function POST(req: NextRequest) {
       const results = await googleTTS.getAllAudioBase64(script, { lang: 'en', slow: false, timeout: 120000 });
       const buffers = results.map((r: any) => Buffer.from(r.base64, 'base64'));
       writeFileSync(filepath, Buffer.concat(buffers));
+    } else if (provider === 'openai') {
+      if (!openaiKey) return NextResponse.json({ error: 'Missing OpenAI API Key' }, { status: 401 });
+      
+      const client = new OpenAI({ apiKey: openaiKey });
+      const mp3 = await client.audio.speech.create({
+        model: 'tts-1',
+        voice: (openaiVoiceId || 'onyx') as any,
+        input: script,
+      });
+      const buffer = Buffer.from(await mp3.arrayBuffer());
+      writeFileSync(filepath, buffer);
     } else {
       return NextResponse.json({ error: 'Invalid TTS provider' }, { status: 400 });
     }

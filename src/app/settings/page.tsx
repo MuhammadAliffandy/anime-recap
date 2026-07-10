@@ -191,7 +191,7 @@ export default function SettingsPage() {
             <div className="flex flex-col gap-3">
               <label className="text-sm font-bold text-white/80 tracking-wide">Voiceover (TTS)</label>
               <div className="flex bg-black/50 p-1.5 rounded-2xl border border-white/10 shadow-inner">
-                {(['elevenlabs', 'google'] as TTSProvider[]).map(provider => (
+                {(['elevenlabs', 'google', 'openai'] as TTSProvider[]).map(provider => (
                   <button
                     key={provider}
                     onClick={() => settings.setPreference('ttsProvider', provider)}
@@ -219,6 +219,28 @@ export default function SettingsPage() {
                   <p className="text-xs text-white/35">
                     Copy the Voice ID from your ElevenLabs Voice Library. Default is Adam (<code className="bg-white/10 px-1 rounded">pNInz6obpgDQGcFmaJgB</code>).
                   </p>
+                </div>
+              )}
+
+              {settings.ttsProvider === 'openai' && (
+                <div className="flex flex-col gap-2 mt-2 p-4 bg-purple-500/5 border border-purple-500/20 rounded-2xl">
+                  <div className="flex items-center gap-2 text-purple-400 text-xs font-black uppercase tracking-widest mb-1">
+                    <Mic size={14} /> OpenAI TTS
+                  </div>
+                  <label className="text-xs font-bold text-white/60 tracking-wide">Voice</label>
+                  <select
+                    value={settings.openaiVoiceId}
+                    onChange={(e) => settings.setPreference('openaiVoiceId', e.target.value)}
+                    className="bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-white text-sm font-bold focus:outline-none focus:border-white focus:ring-2 focus:ring-white/20 transition-all appearance-none cursor-pointer"
+                  >
+                    <option value="onyx">Onyx (Deep Male)</option>
+                    <option value="echo">Echo (Male)</option>
+                    <option value="fable">Fable (Male / British)</option>
+                    <option value="alloy">Alloy (Neutral)</option>
+                    <option value="nova">Nova (Female)</option>
+                    <option value="shimmer">Shimmer (Female)</option>
+                  </select>
+                  <p className="text-xs text-white/35">OpenAI TTS costs around $15 per 1M characters. It has excellent, cheap male voices.</p>
                 </div>
               )}
             </div>

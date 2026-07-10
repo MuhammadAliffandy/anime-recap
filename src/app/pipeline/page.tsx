@@ -37,6 +37,7 @@ async function runTTSPhase(
         script: episode.script,
         provider: settings.ttsProvider,
         voiceId: settings.elevenLabsVoiceId,
+        openaiVoiceId: settings.openaiVoiceId,
         sttProvider: settings.sttProvider,
       }),
     });
