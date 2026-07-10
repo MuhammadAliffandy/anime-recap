@@ -196,7 +196,7 @@ async function buildSemanticClip(
   // Step 3: calculate total combined duration
   const totalSceneDuration = sceneClipDurations.reduce((s, d) => s + d, 0);
 
-  // Step 4: apply subtitle blur+overlay, loop if needed, trim to exact audio duration
+  // Step 4: mux video + audio, loop if needed, trim to exact audio duration
   await new Promise<void>((resolve, reject) => {
     const cmd = ffmpeg();
     if (totalSceneDuration < audioDuration) {
@@ -206,10 +206,8 @@ async function buildSemanticClip(
     }
     cmd.input(audioPath);
 
-    const subtitleFilter = buildSubtitleOverlayFilter(words, blurHeightPct, '[0:v]', '[vfinal]');
     cmd.outputOptions([
-      '-filter_complex', subtitleFilter,
-      '-map', '[vfinal]',
+      '-map', '0:v',
       '-map', '1:a',
       '-c:v', 'libx264', '-crf', '18', '-preset', 'medium', '-r', '30',
       '-c:a', 'aac', '-ar', '44100', '-ac', '2',
@@ -331,8 +329,6 @@ export async function POST(req: NextRequest) {
         const videoDuration = await getVideoDuration(videoPath);
         const highlightFilter = buildHighlightFilter(videoDuration, audioDuration, 5);
 
-        const subtitleFilter = buildSubtitleOverlayFilter(ep.audioWords ?? [], blurHeightPct, '[vraw]', '[vfinal]');
-
         await new Promise<void>((resolve, reject) => {
           const cmd = ffmpeg().input(videoPath);
           if (!highlightFilter) {
@@ -340,26 +336,19 @@ export async function POST(req: NextRequest) {
           }
           cmd.input(audioPath);
 
-          // Build a combined filter: first highlight select (if any), then subtitle overlay
-          let filterComplex: string;
+          const outputOpts: string[] = [];
           if (highlightFilter) {
-            // highlightFilter outputs [v] — pipe into subtitle overlay
-            const adjustedHighlight = highlightFilter.replace('[v]', '[vraw]');
-            filterComplex = adjustedHighlight + ';' + subtitleFilter;
+            outputOpts.push('-filter_complex', highlightFilter);
+            outputOpts.push('-map', '[v]');
           } else {
-            // No highlight filter — feed raw input into subtitle overlay
-            filterComplex = '[0:v]copy[vraw];' + subtitleFilter;
+            outputOpts.push('-map', '0:v');
           }
+          outputOpts.push('-map', '1:a');
+          outputOpts.push('-c:v', 'libx264', '-crf', '18', '-preset', 'medium', '-r', '30');
+          outputOpts.push('-c:a', 'aac', '-ar', '44100', '-ac', '2');
+          outputOpts.push('-t', String(audioDuration), '-movflags', 'faststart');
 
-          cmd.outputOptions([
-            '-filter_complex', filterComplex,
-            '-map', '[vfinal]',
-            '-map', '1:a',
-            '-c:v', 'libx264', '-crf', '18', '-preset', 'medium', '-r', '30',
-            '-c:a', 'aac', '-ar', '44100', '-ac', '2',
-            '-t', String(audioDuration),
-            '-movflags', 'faststart',
-          ])
+          cmd.outputOptions(outputOpts)
             .save(clipPath)
             .on('end', () => resolve())
             .on('error', (err) => reject(err));
