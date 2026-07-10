@@ -2,13 +2,23 @@
 
 import React from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import {
-  Home, Upload, Wand2, BookOpen, Film, Settings, Clapperboard,
+  Home, Upload, Wand2, BookOpen, Film, Settings, Clapperboard, Trash2
 } from 'lucide-react';
+import { useVideoStore } from '@/stores/useVideoStore';
 
 const Sidebar = () => {
   const pathname = usePathname();
+  const router = useRouter();
+  const clearAll = useVideoStore(state => state.clearAll);
+
+  const handleClearProject = () => {
+    if (window.confirm('Are you sure you want to clear the entire project and start over? This will erase all episodes and progress.')) {
+      clearAll();
+      router.push('/');
+    }
+  };
 
   const navItems = [
     { href: '/',         icon: <Home size={20} />,        label: 'Dashboard'   },
@@ -88,6 +98,14 @@ const Sidebar = () => {
             <span className="text-[10px] text-white/25 font-bold">{step}</span>
           </div>
         ))}
+
+        <button 
+          onClick={handleClearProject}
+          className="mt-6 flex items-center gap-2 px-3 py-2.5 bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/20 hover:border-red-500/40 rounded-xl transition-all w-full text-left group"
+        >
+          <Trash2 size={16} className="group-hover:scale-110 transition-transform" />
+          <span className="text-[11px] font-bold tracking-wide">Clear Project</span>
+        </button>
       </div>
     </aside>
   );
