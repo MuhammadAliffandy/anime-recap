@@ -74,6 +74,7 @@ export default function PrologPage() {
           provider: settings.ttsProvider,
           voiceId: settings.elevenLabsVoiceId,
           openaiVoiceId: settings.openaiVoiceId,
+          edgeVoiceId: settings.edgeVoiceId,
           sttProvider: settings.sttProvider,
         }),
       });

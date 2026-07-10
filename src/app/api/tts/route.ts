@@ -4,12 +4,13 @@ import { v4 as uuidv4 } from 'uuid';
 import { writeFileSync, existsSync, createReadStream } from 'fs';
 import * as googleTTS from 'google-tts-api';
 import OpenAI from 'openai';
+import { EdgeTTS } from 'node-edge-tts';
 
 const OUTPUT_DIR = join(process.cwd(), 'output');
 
 export async function POST(req: NextRequest) {
   try {
-    const { script, provider, voiceId, openaiVoiceId, sttProvider } = await req.json();
+    const { script, provider, voiceId, openaiVoiceId, edgeVoiceId, sttProvider } = await req.json();
     const elevenLabsKey = req.headers.get('x-elevenlabs-key');
     const groqKey = req.headers.get('x-groq-key');
     const openaiKey = req.headers.get('x-openai-key');
@@ -61,6 +62,13 @@ export async function POST(req: NextRequest) {
       });
       const buffer = Buffer.from(await mp3.arrayBuffer());
       writeFileSync(filepath, buffer);
+    } else if (provider === 'edge') {
+      const tts = new EdgeTTS({
+        voice: edgeVoiceId || 'en-US-ChristopherNeural',
+        lang: (edgeVoiceId || 'en-US-ChristopherNeural').substring(0, 5),
+        outputFormat: 'audio-24khz-48kbitrate-mono-mp3'
+      });
+      await tts.ttsPromise(script, filepath);
     } else {
       return NextResponse.json({ error: 'Invalid TTS provider' }, { status: 400 });
     }

@@ -3,7 +3,7 @@ import { persist } from 'zustand/middleware';
 
 export type LLMProvider = 'openai' | 'claude' | 'ollama';
 export type STTProvider = 'whisper' | 'groq';
-export type TTSProvider = 'elevenlabs' | 'google' | 'openai';
+export type TTSProvider = 'elevenlabs' | 'google' | 'openai' | 'edge';
 
 export interface AppSettings {
   // API Keys (stored in localStorage only)
@@ -18,6 +18,7 @@ export interface AppSettings {
   ttsProvider: TTSProvider;
   elevenLabsVoiceId: string;
   openaiVoiceId: string;
+  edgeVoiceId: string;
 
   // Ollama local LLM settings
   ollamaModel: string;     // e.g. "llama3.1:8b"
@@ -41,9 +42,10 @@ const defaultSettings: AppSettings = {
   groqKey: '',
   llmProvider: 'openai',
   sttProvider: 'groq',
-  ttsProvider: 'elevenlabs',
+  ttsProvider: 'edge',
   elevenLabsVoiceId: 'pNInz6obpgDQGcFmaJgB', // Adam by default
   openaiVoiceId: 'onyx', // Good male voice by default
+  edgeVoiceId: 'en-US-ChristopherNeural', // Good male voice by default
 
   ollamaModel: 'qwen2.5:14b',
   ollamaBaseUrl: 'http://localhost:11434',
