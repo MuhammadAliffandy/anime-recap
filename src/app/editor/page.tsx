@@ -48,16 +48,6 @@ export default function EditorPage() {
     }
   };
 
-  if (!finalExportId) {
-    return (
-      <div className="flex flex-col items-center justify-center h-[60vh] gap-4">
-        <div className="p-6 bg-cyan-500/10 rounded-full animate-pulse"><Loader2 size={48} className="text-cyan-400 animate-spin" /></div>
-        <p className="text-xl font-bold text-white/50 tracking-tight">No assembled video loaded</p>
-        <Link href="/voice" className="btn btn-primary mt-2">Go to Assembly Stage</Link>
-      </div>
-    );
-  }
-
   const videoRef = React.useRef<HTMLVideoElement>(null);
   const [currentTime, setCurrentTime] = React.useState(0);
 
@@ -81,6 +71,16 @@ export default function EditorPage() {
   const activeChunk = subtitleChunks.find(
     chunk => currentTime >= chunk[0].start && currentTime <= chunk[chunk.length - 1].end
   ) || [];
+
+  if (!finalExportId) {
+    return (
+      <div className="flex flex-col items-center justify-center h-[60vh] gap-4">
+        <div className="p-6 bg-cyan-500/10 rounded-full animate-pulse"><Loader2 size={48} className="text-cyan-400 animate-spin" /></div>
+        <p className="text-xl font-bold text-white/50 tracking-tight">No assembled video loaded</p>
+        <Link href="/voice" className="btn btn-primary mt-2">Go to Assembly Stage</Link>
+      </div>
+    );
+  }
 
   // Construct CSS filters
   const filterStyle = colorGrade 
