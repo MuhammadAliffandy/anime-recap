@@ -82,14 +82,14 @@ export async function POST(req: NextRequest) {
     } else if (provider === 'edge') {
       const chunks = chunkText(script, 1500);
       const tempFiles: string[] = [];
-      const tts = new EdgeTTS({
-        voice: edgeVoiceId || 'en-US-ChristopherNeural',
-        lang: (edgeVoiceId || 'en-US-ChristopherNeural').substring(0, 5),
-        outputFormat: 'audio-24khz-48kbitrate-mono-mp3',
-        timeout: 120000,
-      });
       
       for (let i = 0; i < chunks.length; i++) {
+        const tts = new EdgeTTS({
+          voice: edgeVoiceId || 'en-US-ChristopherNeural',
+          lang: (edgeVoiceId || 'en-US-ChristopherNeural').substring(0, 5),
+          outputFormat: 'audio-24khz-48kbitrate-mono-mp3',
+          timeout: 120000,
+        });
         const tempPath = filepath.replace('.mp3', `-${i}.mp3`);
         await tts.ttsPromise(chunks[i], tempPath);
         tempFiles.push(tempPath);
@@ -136,6 +136,7 @@ export async function POST(req: NextRequest) {
 
   } catch (error: any) {
     console.error('TTS Error:', error);
-    return NextResponse.json({ error: 'TTS generation failed: ' + error.message }, { status: 500 });
+    const msg = typeof error === 'string' ? error : (error?.message || 'Unknown TTS error');
+    return NextResponse.json({ error: 'TTS generation failed: ' + msg }, { status: 500 });
   }
 }
