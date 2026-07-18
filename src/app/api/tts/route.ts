@@ -80,12 +80,13 @@ export async function POST(req: NextRequest) {
       const buffer = Buffer.from(await mp3.arrayBuffer());
       writeFileSync(filepath, buffer);
     } else if (provider === 'edge') {
-      const chunks = chunkText(script, 3000);
+      const chunks = chunkText(script, 1500);
       const tempFiles: string[] = [];
       const tts = new EdgeTTS({
         voice: edgeVoiceId || 'en-US-ChristopherNeural',
         lang: (edgeVoiceId || 'en-US-ChristopherNeural').substring(0, 5),
-        outputFormat: 'audio-24khz-48kbitrate-mono-mp3'
+        outputFormat: 'audio-24khz-48kbitrate-mono-mp3',
+        timeout: 120000,
       });
       
       for (let i = 0; i < chunks.length; i++) {
