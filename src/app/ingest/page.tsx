@@ -276,7 +276,9 @@ export default function IngestPage() {
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
-    accept: { 'video/*': [] },
+    accept: {
+      'video/*': ['.mp4', '.mkv', '.avi', '.mov', '.webm']
+    },
   });
 
   const readyCount = episodes.filter((e) => e.uploadStatus === 'done').length;

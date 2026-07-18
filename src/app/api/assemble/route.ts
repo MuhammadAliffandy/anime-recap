@@ -96,15 +96,15 @@ function buildSubtitleOverlayFilter(
     const yExpr = `h*${(1 - blurHeightPct / 2).toFixed(4)}-text_h/2`;
     parts.push(
       `${prevLabel}drawtext=` +
-        `text='${safeWord}':` +
-        `fontsize=h/15:` +
-        `fontcolor=white:` +
-        `borderw=3:bordercolor=black:` +
-        `font=Arial:` +
-        `x=(w-text_w)/2:` +
-        `y=${yExpr}:` +
-        `enable='between(t\\,${w.start.toFixed(3)}\\,${w.end.toFixed(3)})'` +
-        nextLabel
+      `text='${safeWord}':` +
+      `fontsize=h/15:` +
+      `fontcolor=white:` +
+      `borderw=3:bordercolor=black:` +
+      `font=Arial:` +
+      `x=(w-text_w)/2:` +
+      `y=${yExpr}:` +
+      `enable='between(t\\,${w.start.toFixed(3)}\\,${w.end.toFixed(3)})'` +
+      nextLabel
     );
     prevLabel = nextLabel;
   });
@@ -293,7 +293,7 @@ export async function POST(req: NextRequest) {
           .on('end', () => resolve())
           .on('error', (err) => reject(err));
       });
-      
+
       cumulativeDuration += prologDuration;
     }
 
@@ -404,7 +404,7 @@ export async function POST(req: NextRequest) {
   } catch (error: any) {
     // Cleanup temp files on error too
     for (const f of tempFiles) {
-      try { if (existsSync(f)) unlinkSync(f); } catch {}
+      try { if (existsSync(f)) unlinkSync(f); } catch { }
     }
     console.error('Assemble Error:', error);
     return NextResponse.json(
