@@ -9,8 +9,8 @@ import { EdgeTTS } from 'node-edge-tts';
 const OUTPUT_DIR = join(process.cwd(), 'output');
 
 function chunkText(text: string, maxLength: number = 3000): string[] {
-  // Split by sentence endings or newlines
-  const sentences = text.match(/[^.!?\n]+[.!?\n]+/g) || [text];
+  // Split by sentence endings or newlines, keeping the trailing text
+  const sentences = (text.match(/[^.!?\n]+[.!?\n]*|\s*$/g) || []).filter(s => s.trim().length > 0);
   const chunks: string[] = [];
   let currentChunk = '';
   for (const sentence of sentences) {
