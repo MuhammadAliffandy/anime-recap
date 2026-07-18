@@ -1,12 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { join } from 'path';
 import { v4 as uuidv4 } from 'uuid';
-import { writeFileSync, existsSync, createReadStream } from 'fs';
+import { writeFileSync, existsSync, createReadStream, readFileSync, unlinkSync } from 'fs';
 import * as googleTTS from 'google-tts-api';
 import OpenAI from 'openai';
 import { EdgeTTS } from 'node-edge-tts';
 
 const OUTPUT_DIR = join(process.cwd(), 'output');
+
+function chunkText(text: string, maxLength: number = 3000): string[] {
+  // Split by sentence endings or newlines
+  const sentences = text.match(/[^.!?\n]+[.!?\n]+/g) || [text];
+  const chunks: string[] = [];
+  let currentChunk = '';
+  for (const sentence of sentences) {
+    if (currentChunk.length + sentence.length > maxLength) {
+      if (currentChunk) chunks.push(currentChunk.trim());
+      currentChunk = sentence;
+    } else {
+      currentChunk += ' ' + sentence;
+    }
+  }
+  if (currentChunk) chunks.push(currentChunk.trim());
+  return chunks;
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -63,12 +80,26 @@ export async function POST(req: NextRequest) {
       const buffer = Buffer.from(await mp3.arrayBuffer());
       writeFileSync(filepath, buffer);
     } else if (provider === 'edge') {
+      const chunks = chunkText(script, 3000);
+      const tempFiles: string[] = [];
       const tts = new EdgeTTS({
         voice: edgeVoiceId || 'en-US-ChristopherNeural',
         lang: (edgeVoiceId || 'en-US-ChristopherNeural').substring(0, 5),
         outputFormat: 'audio-24khz-48kbitrate-mono-mp3'
       });
-      await tts.ttsPromise(script, filepath);
+      
+      for (let i = 0; i < chunks.length; i++) {
+        const tempPath = filepath.replace('.mp3', `-${i}.mp3`);
+        await tts.ttsPromise(chunks[i], tempPath);
+        tempFiles.push(tempPath);
+      }
+      
+      const buffers = [];
+      for (const f of tempFiles) {
+        buffers.push(readFileSync(f));
+        unlinkSync(f);
+      }
+      writeFileSync(filepath, Buffer.concat(buffers));
     } else {
       return NextResponse.json({ error: 'Invalid TTS provider' }, { status: 400 });
     }
