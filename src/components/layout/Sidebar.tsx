@@ -4,7 +4,7 @@ import React from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
-  Home, Upload, Wand2, BookOpen, Film, Settings, Clapperboard, Trash2
+  Home, Upload, Wand2, BookOpen, Film, Settings, Clapperboard, Trash2, Youtube
 } from 'lucide-react';
 import { useVideoStore } from '@/stores/useVideoStore';
 
@@ -27,6 +27,7 @@ const Sidebar = () => {
     { href: '/prolog',   icon: <BookOpen size={20} />,    label: 'Prolog'      },
     { href: '/voice',    icon: <Film size={20} />,        label: 'Assembly'    },
     { href: '/editor',   icon: <Clapperboard size={20} />, label: 'Editor'     },
+    { href: '/youtube',  icon: <Youtube size={20} />,     label: 'YouTube'     },
     { href: '/settings', icon: <Settings size={20} />,    label: 'Settings'    },
   ];
 
@@ -90,7 +91,7 @@ const Sidebar = () => {
       {/* Flow guide at bottom */}
       <div className="hidden lg:flex flex-col gap-1 px-5 pb-2 w-full">
         <p className="text-[10px] text-white/20 font-bold uppercase tracking-widest mb-1">Flow</p>
-        {['Ingest', 'Pipeline', 'Prolog', 'Assembly'].map((step, i) => (
+        {['Ingest', 'Pipeline', 'Prolog', 'Assembly', 'YouTube'].map((step, i) => (
           <div key={step} className="flex items-center gap-2">
             <div className="w-4 h-4 rounded-full bg-gradient-to-br from-cyan-500/30 to-purple-500/30 border border-white/10 flex items-center justify-center shrink-0">
               <span className="text-[8px] font-black text-white/50">{i + 1}</span>
