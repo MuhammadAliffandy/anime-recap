@@ -4,7 +4,7 @@ import React from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
-  Home, Upload, Wand2, BookOpen, Film, Settings, Clapperboard, Trash2, Youtube
+  Home, Upload, Wand2, BookOpen, Film, Settings, Clapperboard, Trash2, MonitorPlay
 } from 'lucide-react';
 import { useVideoStore } from '@/stores/useVideoStore';
 
@@ -27,7 +27,7 @@ const Sidebar = () => {
     { href: '/prolog',   icon: <BookOpen size={20} />,    label: 'Prolog'      },
     { href: '/voice',    icon: <Film size={20} />,        label: 'Assembly'    },
     { href: '/editor',   icon: <Clapperboard size={20} />, label: 'Editor'     },
-    { href: '/youtube',  icon: <Youtube size={20} />,     label: 'YouTube'     },
+    { href: '/youtube',  icon: <MonitorPlay size={20} />, label: 'YouTube'     },
     { href: '/settings', icon: <Settings size={20} />,    label: 'Settings'    },
   ];
 

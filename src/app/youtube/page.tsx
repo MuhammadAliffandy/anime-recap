@@ -5,7 +5,7 @@ import { useVideoStore } from '@/stores/useVideoStore';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useEditorStore } from '@/stores/useEditorStore';
 import {
-  Youtube, Sparkles, Copy, Check, Hash, Type, FileText, Loader2,
+  MonitorPlay, Sparkles, Copy, Check, Hash, Type, FileText, Loader2,
   RefreshCw, Download, AlertCircle,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -93,7 +93,7 @@ export default function YoutubePage() {
         <div>
           <h1 className="text-5xl font-black text-white font-heading tracking-tight leading-none flex items-center gap-4">
             <div className="p-3 bg-red-500/20 rounded-2xl shadow-[0_0_20px_rgba(239,68,68,0.3)]">
-              <Youtube size={36} className="text-red-400" />
+              <MonitorPlay size={36} className="text-red-400" />
             </div>
             YouTube
           </h1>
@@ -233,7 +233,7 @@ export default function YoutubePage() {
       {title && (
         <div className="glass-card p-6 border-red-500/20">
           <div className="flex items-center gap-3 text-white/40 text-xs font-black uppercase tracking-widest mb-6">
-            <Youtube size={14} /> YouTube Preview
+            <MonitorPlay size={14} /> YouTube Preview
           </div>
 
           {/* Simulated YouTube card */}
